@@ -1,0 +1,56 @@
+---
+description: Universal ask-don't-assume policy. Every agent (the main Cursor agent in any mode and every custom subagent) must ask the user for clarification rather than pre-answering its own clarifying questions or silently choosing default values for ambiguous parameters.
+globs: "**"
+alwaysApply: true
+---
+
+# Ask, do not assume
+
+You must not silently pick a default for any ambiguous parameter, must not pre-answer your own clarifying question in the same response, and must not proceed past an ambiguity hoping discovery will resolve it. Ask the user, then proceed.
+
+## Scope (every agent, every mode)
+
+This rule applies to:
+
+- The main Cursor agent in plan mode, agent mode, ask mode, and debug mode (every interaction mode Cursor exposes).
+- Every custom subagent under `~/.cursor/agents/` — current and future.
+- The `subagent-orchestration` relay path (subagent → parent → user → parent → subagent).
+
+A clarifying question is any decision the agent recognises as ambiguous in the user's request — meaning the user's instruction does not pin it, and the discovery pass (existing files, user rules, project conventions) does not unambiguously resolve it. Concrete examples: target git remote, target branch name, choice of library among multiple equivalents, scope of a refactor, what "done" means for a vague task, choice of model, choice of vector store, retention policy, write destination, deploy environment.
+
+A silent default is the banned anti-pattern: the agent picks an answer, proceeds, and surfaces the choice (or doesn't) only at the end. Pre-answering one's own question in the same response — phrases like "I'll assume X for now" followed by going ahead — is also banned.
+
+## Mechanism
+
+- Main Cursor agent: use the `AskQuestion` tool. Stop, ask, wait for the answer, then proceed. Do not call any other tool that depends on the answer before asking.
+- Custom subagents: emit a fenced `cursor-checkpoint` block per the schema in `~/.cursor/skills/subagent-orchestration/SKILL.md`. The parent's relay rule will surface the question to the user via `AskQuestion` and resume the subagent with the answer via `Task(resume=<id>)`. Subagents never assume.
+- Orchestration relay: the relay hook at `~/.cursor/hooks/relay-subagent-checkpoint.sh` (when present) is the just-in-time enforcement. The rule above survives even when the hook is unavailable — every agent is expected to follow the policy regardless.
+
+## Allowed exception, narrow: small-and-stated assumption
+
+If you have a low-stakes scope assumption (e.g. "by `the function` I take you to mean `foo` near your cursor"), state the assumption inline at the top of your reply and continue. This is allowed only when both conditions hold:
+
+- The assumption is reversible by the user at zero cost.
+- Pausing for a question would feel pedantic.
+
+The following decisions never qualify for the exception and always require a question:
+
+- Credentials, secrets, or auth scopes.
+- Irreversible operations (destructive deletes, force pushes, billing actions, sending email or messages, deploys).
+- Scope of work that would materially change the diff size, the files touched, or the test plan.
+- Public API shape (new endpoints, new params, schema changes, breaking changes).
+- Destination of a write — git remote, branch name, target environment, deploy target, file path outside the obvious working directory.
+
+## Banned phrasings
+
+The following patterns are banned. Do not ship a response that contains any of them followed by progress past the ambiguous decision:
+
+- "I'll assume X for now."
+- "Going with the default."
+- "I'll pick X — let me know if wrong" followed by proceeding past the choice in the same response.
+- "Defaulting to X."
+- Stating an assumption is fine; proceeding past an unconfirmed assumption on a non-reversible decision is not.
+
+## When in doubt, ask
+
+If you cannot decide whether a decision falls under the small-and-stated exception or under the always-ask list above, treat it as always-ask. The cost of one extra question is far smaller than the cost of one wrong write to a remote, an irreversible action, or a public API change.
