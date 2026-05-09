@@ -41,6 +41,7 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 ## Daily workflow
 
 - Edit any file under `/Users/Shared/cursor-config/`. Symlinks make every user see the change immediately. Standards-doc edits propagate via the next `bootstrap.sh` run (copy semantics).
+- When `standards/engineering-standards.md` or `standards/scalable-backend-design.md` is edited, each macOS user runs `bash /Users/Shared/cursor-config/bootstrap.sh` once to refresh the copy in `~/.cursor/`. The agent and skill changes need no re-run because they live behind symlinks.
 - Commit and push from `/Users/Shared/cursor-config/` like any other git repo.
 - On a new Mac, run the first-time setup above. On a new macOS user account on an existing Mac, just run `bootstrap.sh`.
 

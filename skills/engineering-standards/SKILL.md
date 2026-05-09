@@ -22,6 +22,16 @@ Read the canonical document at `~/.cursor/engineering-standards.md` before any s
 11. Lint and type errors take priority — fix in any code you touched before writing more logic.
 12. Layered import direction — outer reusable layers (`src/types`, `src/dao`, `src/dto`, `src/constants`, `src/utils`) MUST NOT import from inner service / domain modules.
 
+## Design vocabulary (summary)
+
+The canonical doc (`~/.cursor/engineering-standards.md`) names the design principles every change is reviewed against. One bullet per family; the doc is the source of truth and wins on conflicts.
+
+- **Object-oriented design pillars** — encapsulation (hide implementation, guard invariants), abstraction (depend on contracts not concretes), inheritance sparingly (true *is-a* with Liskov; otherwise compose), polymorphism (dispatch via interface, not `if`-on-type).
+- **SOLID** — SRP (one reason to change), OCP (extend by adding strategies, do not edit working code), LSP (subtypes substitutable, no `NotImplementedError` overrides), ISP (small focused interfaces over wide ones), DIP (high-level and low-level both depend on a shared abstraction; reinforces rules 5 and 12).
+- **Universal design principles** — DRY, KISS, YAGNI, Law of Demeter (no `a.b.c.d.do()` chains), Composition-over-Inheritance, Tell-Don't-Ask, Principle of Least Astonishment, Fail-Fast, Make-Illegal-States-Unrepresentable.
+- **Clean-code basics** — intention-revealing names (no `tmp` / `data` / `helper` placeholders), function size ≤ 30 lines target / ≤ 50 lines hard cap, 0–3 parameters (4+ groups into a typed DTO), comments explain *why* not *what*, domain error types (never `str(e)` in user paths), separate pure computation from effect.
+- **Cohesion and coupling** — high cohesion (a module's symbols change together), low coupling (small stable public surface), separation of concerns (UI / orchestration / domain / persistence / external IO in distinct layers). Rule 12 (layered import direction) is the structural enforcement of low coupling.
+
 ## Ask, do not assume
 
 Surface every ambiguous decision via `AskQuestion` (main agent) or a `cursor-checkpoint` block (subagent) — see `~/.cursor/rules/ask-dont-assume.mdc` for the full rule. Never silently pick a default.

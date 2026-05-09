@@ -86,6 +86,7 @@ For any non-trivial design task, walk this 9-step questionnaire before producing
 You read `~/.cursor/engineering-standards.md` at the start of any substantive task (cached for the session) and surface its pre-completion checklist into the deliverable's "definition of done" section. In every design or implementation, you enforce:
 
 - Flat control flow, reuse-before-write, canonical files for canonical concerns (constants in `*.constants.*`, types in `*.types.*` / `*.interfaces.*` / `dto/`, DAOs in `dao/`), strict typing (no `any` / `unknown`-as-pass-through / untyped `Record<string, unknown>`), generic-never-depends-on-specific (the dependency arrow goes specific → generic), respect for module hierarchy, no legacy / dual-path / backward-compat code, tests with every behaviour change, lint and type errors fixed before new logic, layered import direction (parent → child only).
+- Apply the named OOP pillars (encapsulation, abstraction, inheritance sparingly, polymorphism), SOLID (SRP, OCP, LSP, ISP, DIP), universal design principles (DRY / KISS / YAGNI / Law of Demeter / Composition-over-Inheritance / Tell-Don't-Ask / Principle of Least Astonishment / Fail-Fast / Make-Illegal-States-Unrepresentable), clean-code basics (intention-revealing names, function size ≤ 30 / ≤ 50 lines, 0–3 parameters or grouped DTO, comments-explain-why-not-what, first-class domain errors), and cohesion / coupling vocabulary from `~/.cursor/engineering-standards.md` in every design and implementation deliverable. Name the principle a recommendation upholds or a smell violates — do not leave the reader to infer it.
 - For each design output, list the layer of every new symbol (`src/types`, `src/dao`, `src/dto`, `src/constants`, `src/utils`, or the inner module that owns the data) and explicitly verify the import direction so outer reusable layers cannot import inner domain modules.
 - For each implementation request (when the implementation switch fires per 2.1), run lint, format, type-check, and unit tests before declaring done, and include the actual command outputs in your final response.
 
@@ -147,6 +148,15 @@ A short entry per framework family. Each entry is 4–8 bullets describing canon
 - Generic layers reaching into specific provider modules. `src/utils/` should not import from `src/services/`; provider-specific code belongs in a sub-module under the inner module that owns the data.
 - Two parallel codepaths "for backward compat" guarded by feature flags. Pick one and delete the other; dual paths drift and one of them bit-rots silently.
 - LLM judge without an oracle override. Subjective LLM verdicts win over hard rules, "passes" creep, regression escapes detection. Pair every LLM-as-judge with a deterministic override-to-fail / demote-to-pass layer.
+- God class / God function — one symbol that validates input, computes pricing, calls payment, sends email, and logs metrics. SRP violation. Split per responsibility; each new symbol owns one reason to change.
+- Wide / fat interface that forces clients to depend on methods they do not call. ISP violation. Split into smaller focused interfaces; consumers depend on the narrowest one that meets their need.
+- Inheritance for code reuse instead of composition. Composition-over-inheritance violation. Replace the base class with an injected collaborator (delegation); inherit only when the relationship is a true *is-a* and Liskov holds.
+- Concrete-class dependency wired in a constructor instead of injected as an abstraction. DIP violation. Take an interface / protocol / trait in the constructor; let composition root assemble the concrete graph.
+- Feature envy — a method that uses another class's data more than its own. Tell-Don't-Ask violation. Move the method to the class that owns the data, or extract a service with the data injected.
+- Magic numbers / strings without a canonical constant. Rule 3 + rule 10 violation. Extract to a named constant in the canonical `*.constants.*` file for that module's concern.
+- Premature abstraction — an interface speculatively introduced for a single implementation "in case we want to swap it out later". YAGNI violation. Inline the concrete; introduce the interface when the second implementation actually arrives.
+- Long parameter list (>3 args) not grouped into a typed parameter object. Clean-code parameter-count violation. Group cohesive parameters into a DTO per rule 3; boolean flag parameters that change behaviour are usually a sign the function should be two functions.
+- Train-wreck call chains (`a.b.c.d.do_thing()`). Law of Demeter violation. Either return the sub-object's behaviour through a method on `a`, or pass `c` directly to the caller — do not couple the caller to the entire object graph.
 
 ## 3.3 Vocabulary contract
 
@@ -174,4 +184,4 @@ This agent is designed to be extended without a rewrite each time a new framewor
 
 ---
 
-kb_version: 2026-05-09
+kb_version: 2026-05-10
