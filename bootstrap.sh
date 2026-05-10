@@ -104,6 +104,44 @@ if [ -d "${TARGET_HOME}/hooks" ]; then
     echo "chmod  hooks/*.sh refreshed (+x)."
 fi
 
+# 6. Optionally offer to install the system LaunchAgent that auto-runs
+#    bootstrap.sh at every user login on this Mac (covers all current
+#    and future macOS users via /Library/LaunchAgents/).
+#
+#    Skip silently when:
+#      - CURSOR_CONFIG_NO_AUTORUN=1 is set (the LaunchAgent's own wrapper
+#        sets this so the auto-run invocation never re-prompts).
+#      - Stdin is not a tty (cron, CI, redirected input).
+#      - The LaunchAgent plist is already installed at the system path.
+LAUNCHAGENT_DEST="/Library/LaunchAgents/com.cursor-config.bootstrap.plist"
+INSTALL_AUTORUN="${CANONICAL_DIR}/launchagents/install-autorun.sh"
+
+if [ "${CURSOR_CONFIG_NO_AUTORUN:-0}" = "1" ]; then
+    :
+elif [ -f "${LAUNCHAGENT_DEST}" ]; then
+    echo "ok     auto-run already installed at ${LAUNCHAGENT_DEST}; skipping prompt."
+elif [ ! -t 0 ]; then
+    :
+elif [ ! -x "${INSTALL_AUTORUN}" ]; then
+    echo "skip   ${INSTALL_AUTORUN} missing or not executable; skipping prompt."
+else
+    echo
+    echo "Optional: install auto-run-on-login for every macOS user on this Mac?"
+    echo "Once installed, every current and future user auto-runs bootstrap.sh"
+    echo "at login. Logs go to ~/Library/Logs/cursor-config-bootstrap.log."
+    echo "To disable later: sudo bash ${CANONICAL_DIR}/launchagents/uninstall-autorun.sh"
+    printf "Install now? [y/N] "
+    read autorun_answer || autorun_answer=""
+    case "${autorun_answer}" in
+        y|Y|yes|YES)
+            "${INSTALL_AUTORUN}"
+            ;;
+        *)
+            echo "skipped. Run ${INSTALL_AUTORUN} later if you change your mind."
+            ;;
+    esac
+fi
+
 echo
 echo "bootstrap complete. ~/.cursor/ now points at ${CANONICAL_DIR}."
 echo "to update later: cd ${CANONICAL_DIR} && git pull"

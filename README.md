@@ -45,6 +45,39 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 - Commit and push from `/Users/Shared/cursor-config/` like any other git repo.
 - On a new Mac, run the first-time setup above. On a new macOS user account on an existing Mac, just run `bootstrap.sh`.
 
+## Optional: auto-run at every user login (recommended for shared Macs)
+
+Once enabled, every macOS user on this Mac (current and future, GUI logins) auto-runs `bootstrap.sh` at login. No per-user setup. The mechanism is a system-scope LaunchAgent at `/Library/LaunchAgents/com.cursor-config.bootstrap.plist`, which macOS loads automatically into every user session.
+
+### Enable
+
+Either accept the prompt the next time you run `bootstrap.sh` from a terminal, or run the installer directly. Both paths self-elevate to `sudo`; you only type your password once.
+
+```sh
+sudo bash /Users/Shared/cursor-config/launchagents/install-autorun.sh
+```
+
+### Disable
+
+```sh
+sudo bash /Users/Shared/cursor-config/launchagents/uninstall-autorun.sh
+```
+
+The uninstaller removes the LaunchAgent. Per-user log files at `~/Library/Logs/cursor-config-bootstrap.log` are intentionally left in place so you can inspect them; delete them manually if you want.
+
+### Logs
+
+Each user gets `~/Library/Logs/cursor-config-bootstrap.log` after the LaunchAgent fires the first time. The file is truncated and rewritten on each login (idempotent bootstrap output).
+
+### "Background Items" notification
+
+On macOS Sequoia (15) and later, the OS shows a one-time notification when the LaunchAgent first loads, and lists it in `System Settings → General → Login Items` under "Background Items". This is macOS being transparent — leave the toggle on for the auto-run to keep working.
+
+### When auto-run does NOT cover you
+
+- Users who never log in via the GUI (SSH-only). They can run `bootstrap.sh` manually as needed.
+- A new Mac with no canonical repo at `/Users/Shared/cursor-config/` — bootstrap will exit with `error: canonical dir ... does not exist` and login proceeds normally. Clone the repo into place and the next login auto-bootstraps.
+
 ## Adding a new subagent
 
 1. Drop a new `<name>.md` into `agents/`. The file's YAML frontmatter must include `name`, `description`, and (per `skills/subagent-orchestration/SKILL.md`) `produces` and `consumes` artefact-type lists. The body is the system prompt.
