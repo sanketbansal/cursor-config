@@ -1,6 +1,6 @@
 ---
 name: claude-code
-description: "Delegate coding work to the Claude Code CLI (Anthropic) as a Cursor subagent. Use proactively for heavy multi-step coding tasks, large refactors, deep code reviews, large-context implementation, or any task where a second top-tier model (Claude Opus / Sonnet) should do focused work in the current repo as a second opinion alongside the Cursor main agent. Always pre-flights `claude auth status` plus a 1-token probe before delegating; if Claude Code is rate-limited, signed out, or not installed, the subagent reports back a single-line JSON envelope (available=false plus a canonical reason string) so the parent agent can fall back without the user being blocked. Requires the `claude` CLI v2.x on the user's machine (install via `curl -fsSL https://claude.ai/install.sh | bash`)."
+description: Delegate coding work to the locally installed Claude Code CLI (Anthropic) as a Cursor subagent. Use proactively for heavy multi-step coding tasks, large refactors, deep code reviews, large-context implementation, or any task where a second top-tier model should do focused work as a second opinion alongside the Cursor main agent. Pre-flights auth and a one-token probe before delegating, and reports an availability envelope so the parent can fall back if Claude Code is rate-limited or signed out.
 produces: [code-diff, lld-plan, review-report, bug-diagnosis]
 consumes: [task-description, code-context, architecture-doc, lld-plan]
 ---
