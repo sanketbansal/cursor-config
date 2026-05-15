@@ -1,15 +1,33 @@
 # cursor-config
 
-Canonical source of truth for custom Cursor agents, skills, rules, hooks, and standards docs. One clone per Mac at `/Users/Shared/cursor-config/`, symlinked into every macOS user's `~/.cursor/` via `bootstrap.sh`. Survives macOS-user switches and moves to a new machine without re-implementing any agent, skill, or rule.
+Canonical source of truth for custom Cursor agents, skills, rules, hooks, and standards docs. One clone per Mac at `/Users/Shared/cursor-config/`, copied into every macOS user's `~/.cursor/` via `bootstrap.sh`. Survives macOS-user switches and moves to a new machine without re-implementing any agent, skill, or rule.
 
 ## Layout
 
-- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Includes `ai-engineer.md`.
-- `skills/` — custom user skills that ship into `~/.cursor/skills/`. Includes `subagent-orchestration`, `engineering-standards`, `scalable-system-design`. Cursor's built-in `~/.cursor/skills-cursor/` is NEVER mirrored here — that directory is Cursor-managed and has its own auto-sync.
-- `rules/` — user-scoped rules that ship into `~/.cursor/rules/`. Includes `ask-dont-assume.mdc`.
-- `hooks/` — custom hook scripts that ship into `~/.cursor/hooks/`. The `+x` bit is refreshed on every bootstrap run.
-- `standards/` — standalone standards documents copied (not symlinked) into `~/.cursor/`. Includes `engineering-standards.md` and `scalable-backend-design.md`.
-- `bootstrap.sh` — POSIX-shell idempotent bootstrapper. Run once per user account.
+- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Seven files in two complementary groups:
+  - **Pipeline subagents** that compose under `subagent-orchestration` (artefact dataflow `business-prompt → prd → architecture-doc → lld-plan → code-diff → deploy-artefact`):
+    - `product-manager.md` — produces `prd` from a `business-prompt`.
+    - `principal-engineer.md` — produces `architecture-doc` (and ADRs) from a `prd`.
+    - `staff-engineer.md` — produces `lld-plan` (module decomposition, schema, sequenced waves) from `prd` + `architecture-doc`. Produces no code.
+    - `software-engineer.md` — produces `code-diff` (production code + tests) from an `lld-plan`.
+    - `dev-ops.md` — produces `deploy-artefact` (Dockerfiles, CI/CD workflows, IaC, package-manager scripts) from `lld-plan` + `code-diff`.
+  - **Specialist subagents** outside the pipeline:
+    - `ai-engineer.md` — design-first AI / multi-agent / LLM-system specialist. Produces `architecture-doc`, `lld-plan`, `distributed-design`, `eval-design`. Never writes code in deliverables unless agent mode explicitly asks.
+    - `claude-code.md` + `claude-code.runner.sh` — thin relay that delegates implementation work to the locally installed Claude Code CLI (Anthropic) as a Cursor subagent, with an active-probe gate.
+- `skills/` — custom user skills that ship into `~/.cursor/skills/`. Four skills:
+  - `engineering-standards/` — auto-trigger on any code/design task; enforces the 17 standards (12 universal + 5 SOLID), OOP fundamentals, and the design-patterns catalogue from `standards/engineering-standards.md`.
+  - `scalable-system-design/` — walks new backend / async / cache / migration / AI-system designs through the 7-step questionnaire and the 12 system-design primitives in `standards/scalable-backend-design.md`.
+  - `subagent-orchestration/` — discovery-driven, dataflow-driven runbook for the parent Cursor agent. Builds the per-task dependency graph from each subagent's `produces`/`consumes` frontmatter and enforces the inviolable `cursor-checkpoint` relay rule (subagent question → `AskQuestion` → resume). Roster-agnostic; do not hard-code subagent names.
+  - `deployment-standards/` — universal-standards reference paired with the `dev-ops` subagent for Dockerfiles, CI/CD workflows, IaC, package-manager scripts, secrets, observability-at-deploy, and rollout / rollback safety.
+  - Cursor's built-in `~/.cursor/skills-cursor/` is NEVER mirrored here — that directory is Cursor-managed and has its own auto-sync.
+- `rules/` — user-scoped rules that ship into `~/.cursor/rules/`. Includes `ask-dont-assume.mdc` (the universal "never silently pick a default; ask the user" policy that applies to every agent in every mode and to the orchestration relay).
+- `hooks/` — custom hook scripts that ship into `~/.cursor/hooks/`. Includes `relay-subagent-checkpoint.sh` — the `subagentStop` hook (Python) that scans subagent output for the `cursor-checkpoint` marker and injects a `followup_message` enforcing the `subagent-orchestration` relay rule. The `+x` bit is refreshed on every bootstrap run.
+- `hooks.json` — top-level dotfile that registers `relay-subagent-checkpoint.sh` for the `subagentStop` event with `failClosed: false`. Copies to `~/.cursor/hooks.json`.
+- `standards/` — standalone standards documents copied into `~/.cursor/`:
+  - `engineering-standards.md` — canonical 17 standards + OOP fundamentals + design-patterns catalogue + pre-completion checklist. Every contributor (human or agent) reads this at the start of any substantive task.
+  - `scalable-backend-design.md` — canonical 12 system-design primitives (idempotency, transactional outbox, idempotent consumers, circuit breakers, retries with backoff + jitter, bulkheads, backpressure, graceful shutdown, liveness vs readiness, caching, observability, forward-only migrations) + the 7-step design walkthrough + AI-specific extensions.
+- `bootstrap.sh` — POSIX-shell idempotent copy-everything sync. Run once per user account.
+- `launchagents/` — optional system-scope LaunchAgent that auto-runs `bootstrap.sh` at every user login on this Mac.
 - `README.md` — this file.
 
 ## First-time setup on a new Mac
@@ -28,22 +46,73 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
    /Users/Shared/cursor-config/bootstrap.sh
    ```
 
-   That populates `~/.cursor/agents`, `~/.cursor/skills`, `~/.cursor/rules`, `~/.cursor/hooks` as symlinks into the canonical clone, and copies `engineering-standards.md` and `scalable-backend-design.md` into `~/.cursor/`. The script is idempotent and safe to re-run.
+   That copies `agents/`, `skills/`, `rules/`, and `hooks/` into `~/.cursor/`, and copies `standards/engineering-standards.md`, `standards/scalable-backend-design.md`, and the top-level `hooks.json` into `~/.cursor/`. The script is idempotent and safe to re-run.
 
 3. Verify:
 
    ```sh
-   ls -lL ~/.cursor/agents/ai-engineer.md
-   ls -lL ~/.cursor/rules/ask-dont-assume.mdc
-   cat ~/.cursor/engineering-standards.md | head
+   ls ~/.cursor/agents/             # 7 files: 5 pipeline + ai-engineer + claude-code (+ runner)
+   ls ~/.cursor/skills/             # 4 skill folders
+   ls ~/.cursor/hooks/              # relay-subagent-checkpoint.sh
+   cat ~/.cursor/hooks.json         # subagentStop registration
+   head ~/.cursor/engineering-standards.md
    ```
+
+4. Compose your own User Rules text and paste it into **Cursor Settings → Rules → User Rules**. The recommended composition is short pointers to the canonical sources rather than copies of their content (see [Composing the User Rules](#composing-the-user-rules) below).
 
 ## Daily workflow
 
-- Edit any file under `/Users/Shared/cursor-config/`. Symlinks make every user see the change immediately. Standards-doc edits propagate via the next `bootstrap.sh` run (copy semantics).
-- When `standards/engineering-standards.md` or `standards/scalable-backend-design.md` is edited, each macOS user runs `bash /Users/Shared/cursor-config/bootstrap.sh` once to refresh the copy in `~/.cursor/`. The agent and skill changes need no re-run because they live behind symlinks.
+- Edit any file under `/Users/Shared/cursor-config/`.
+- Re-run `bash /Users/Shared/cursor-config/bootstrap.sh` to push the change out to `~/.cursor/`. The optional auto-run-on-login LaunchAgent (see below) does this automatically at every login.
 - Commit and push from `/Users/Shared/cursor-config/` like any other git repo.
 - On a new Mac, run the first-time setup above. On a new macOS user account on an existing Mac, just run `bootstrap.sh`.
+- When you change `standards/engineering-standards.md`, `standards/scalable-backend-design.md`, or `skills/subagent-orchestration/SKILL.md` and your User Rules pastes summary text from those, also re-paste your User Rules into Cursor Settings → Rules → User Rules — Cursor stores user rules in your account, not on disk, so a manual paste is required for the change to take effect.
+
+### Why copy and not symlink
+
+Earlier versions of `bootstrap.sh` symlinked `agents/`, `skills/`, `rules/`, and `hooks/` from canonical into `~/.cursor/`. Cursor reads these directories as real files in practice — every fresh install starts with `~/.cursor/agents/`, `~/.cursor/skills/`, and `~/.cursor/hooks/` as real directories, not symlinks. The symlink model also broke the moment a user already had any real file under those paths (the script bailed with "exists as a real path, not a symlink"). The current copy-everything model mirrors the layout Cursor is already reading from and is idempotent on top of any pre-existing real file. The trade-off — local edits under `~/.cursor/` no longer propagate back to canonical automatically — is intentional: edit in `/Users/Shared/cursor-config/` and run bootstrap to push out.
+
+Note that `bootstrap.sh` overwrites destination files but does NOT delete files that exist in `~/.cursor/` but not in the canonical repo. If you remove a file from canonical, also delete the stale copy from `~/.cursor/` by hand on each user account.
+
+## Pipeline subagents
+
+The five pipeline subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops`) compose end-to-end under the `subagent-orchestration` skill's dependency-graph procedure. Each agent declares `produces` / `consumes` against the artefact vocabulary in `skills/subagent-orchestration/SKILL.md` §3, and the parent Cursor agent builds a per-task graph from those declarations rather than from a fixed pipeline diagram. Different tasks produce different graphs; the user's task and what the user has already provided determine which agents fire.
+
+Every subagent that pauses for input emits a fenced `cursor-checkpoint` block (schema in `skills/subagent-orchestration/SKILL.md` §1). The parent must relay the question to the user via `AskQuestion` verbatim, then resume the same subagent with `Task(resume=<id>, prompt=<answer>)`. This is the inviolable rule of the orchestration model — see `skills/subagent-orchestration/SKILL.md` §6 for the full protocol and `rules/ask-dont-assume.mdc` for the universal ask-don't-assume policy.
+
+The two specialist subagents (`ai-engineer`, `claude-code`) sit alongside the pipeline. `ai-engineer` is design-first and produces markdown architecture / design / plan documents for AI / multi-agent / LLM systems; it switches to writing code only when the parent in agent mode explicitly asks. `claude-code` is a thin relay that delegates implementation work to the locally installed Claude Code CLI (Anthropic) — see [Claude Code subagent](#claude-code-subagent) below.
+
+## Hooks
+
+`hooks.json` registers a `subagentStop` hook (`hooks/relay-subagent-checkpoint.sh`) with `failClosed: false`. Every time a subagent terminates, the hook scans its output for a fenced `cursor-checkpoint` block. If one is present, it parses the embedded YAML and injects a `followup_message` instructing the parent to call `AskQuestion` verbatim with the subagent's question and options, then resume the subagent with the user's answer.
+
+The hook is defence-in-depth — the User Rules and the `subagent-orchestration` skill require the parent to relay regardless of hook state. `failClosed: false` means a hook bug never wedges the agent.
+
+The hook script is roster-agnostic: there is no per-subagent name list anywhere in it. The presence of the `cursor-checkpoint` block is the sole trigger. Any subagent (current or future) that emits the marker gets relayed; any subagent (or Cursor built-in like `explore`, `shell`, `browser-use`) that does not emit it makes the script a no-op.
+
+## Composing the User Rules
+
+Cursor User Rules apply to **Agent (Chat) only**, not to Inline Edit (Cmd/Ctrl+K). Rule precedence is **Team → Project → User**. Workspace-level rules in `<repo>/.cursor/rules/*.mdc` win on conflicts within a project.
+
+Cursor stores User Rules in your account, not on disk — there is no file in this repo that is auto-applied as User Rules. You compose the text yourself once per Cursor account and paste it into **Cursor Settings → Rules → User Rules**. The repo deliberately does not ship a paste-source file because most of the standards content already lives in canonical files under `standards/` and `skills/`, and duplicating it into a User Rules paste-source violates DRY (and silently drifts).
+
+Recommended composition — short pointers to the canonical sources instead of copies of their content:
+
+```text
+# Engineering standards (always apply)
+Follow the canonical engineering standards in `~/.cursor/engineering-standards.md` and the `engineering-standards` skill at `~/.cursor/skills/engineering-standards/SKILL.md` for every implementation, bug fix, refactor, design, plan, and code review. Read the canonical document at the start of any substantive task and surface its pre-completion checklist into your todos.
+
+# Scalable backend design (apply to backend services)
+Follow `~/.cursor/scalable-backend-design.md` and the `scalable-system-design` skill at `~/.cursor/skills/scalable-system-design/SKILL.md` whenever designing a new service, integration, async pipeline, caching layer, or migration. Walk the 7-step questionnaire and apply the 12 system-design primitives before producing the design.
+
+# Subagent orchestration (always apply)
+For any non-trivial coding, design, deployment, audit, or review task, follow the orchestration runbook in `~/.cursor/skills/subagent-orchestration/SKILL.md`. Discover registered subagents under `~/.cursor/agents/`, build the per-task dependency graph from each agent's `produces`/`consumes` frontmatter, and dispatch by graph topology. When any subagent emits a fenced `cursor-checkpoint` block, your first action is to relay the question to the user via `AskQuestion` verbatim and resume the subagent with the answer; never invent answers, never paraphrase.
+
+# Ask, do not assume (always apply)
+Follow `~/.cursor/rules/ask-dont-assume.mdc` — never silently pick a default, never pre-answer your own clarifying question, never proceed past an unconfirmed assumption on credentials, irreversible operations, scope of work, public API shape, or destination of a write.
+```
+
+Add your own operational preferences (operating environment, communication style, scope discipline, etc.) below the pointers as needed; those are agent-behaviour preferences and don't belong in the canonical standards files.
 
 ## Optional: auto-run at every user login (recommended for shared Macs)
 
@@ -175,18 +244,18 @@ Probes cost what is shown under "Pre-flight gate" above — a few cents per cold
 
 1. Drop a new `<name>.md` into `agents/`. The file's YAML frontmatter must include `name`, `description`, and (per `skills/subagent-orchestration/SKILL.md`) `produces` and `consumes` artefact-type lists. The body is the system prompt.
 2. The boilerplate ask-don't-assume paragraph must appear verbatim in the prompt body (canonical wording in `skills/subagent-orchestration/SKILL.md`). Every custom subagent uses the same wording so the policy stays uniform.
-3. No bootstrap re-run is needed; symlinks pick up the new file the next time Cursor walks `~/.cursor/agents/`.
+3. Re-run `bash /Users/Shared/cursor-config/bootstrap.sh` (or wait for the next login auto-run) to push the new file out to `~/.cursor/agents/`.
 
 ## Adding a new rule
 
 1. Drop a new `<name>.mdc` into `rules/`. Frontmatter sets `description`, `globs` (e.g. `"**"` for all files), and `alwaysApply` (boolean).
 2. Body in markdown.
-3. No bootstrap re-run is needed.
+3. Re-run `bootstrap.sh` to push the new file out.
 
 ## Adding a new skill
 
 1. Create a `skills/<name>/SKILL.md`. Frontmatter sets `name` and `description`; body explains when to use the skill and the procedure to follow.
-2. No bootstrap re-run is needed.
+2. Re-run `bootstrap.sh` to push the new file out.
 
 ## What is NOT here (deliberately)
 
@@ -197,7 +266,7 @@ Probes cost what is shown under "Pre-flight gate" above — a few cents per cold
 
 ## Cross-machine path
 
-Same as first-time setup. `git clone` this repo to `/Users/Shared/cursor-config/` on the new machine; each user runs `bootstrap.sh`. Updates flow via `git pull` in the shared clone.
+Same as first-time setup. `git clone` this repo to `/Users/Shared/cursor-config/` on the new machine; each user runs `bootstrap.sh`. Updates flow via `git pull` followed by another `bootstrap.sh` run on each macOS user account (or via the auto-run-on-login LaunchAgent).
 
 ## Optional: iCloud-backed mirror
 

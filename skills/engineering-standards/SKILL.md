@@ -1,50 +1,111 @@
 ---
 name: engineering-standards
-description: Apply the canonical engineering standards (`~/.cursor/engineering-standards.md`) to any implementation, refactor, design, or review. Use at the start of every substantive task.
+description: Use whenever implementing a feature, fixing a bug, refactoring, designing a new module or architecture, reviewing code, or writing/updating a plan. Enforces the universal engineering standards — the 17 standards (12 universal + 5 SOLID), the OOP fundamentals (encapsulation, abstraction, polymorphism not type checks, composition over inheritance, tell-don't-ask, Law of Demeter, single level of abstraction), and the design-patterns catalogue (Strategy, Factory, Registry, Repository, Adapter, Decorator, Observer, Builder, Template Method, Chain of Responsibility, Specification, Result/Either). Always load before producing code or design output.
 ---
 
-# Engineering standards
+# Engineering Standards
 
-Read the canonical document at `~/.cursor/engineering-standards.md` before any substantive task and surface its pre-completion checklist into your todos.
+This skill enforces the universal engineering standards defined in the canonical document:
 
-## Non-negotiables (summary; canonical doc wins on conflicts)
+> [`~/.cursor/engineering-standards.md`](~/.cursor/engineering-standards.md)
 
-1. Flat control flow — guard clauses, early returns, no nested `if` / `try`.
-2. Reuse before write — search for existing constants / types / DTOs / DAOs / helpers first.
-3. Canonical files for canonical concerns — `*.constants.*`, `*.types.*` / `*.interfaces.*` / `dto/`, `dao/`. Extend the existing file rather than spawning per-feature siblings.
-4. Strict typing — no `any`, no `unknown`-as-pass-through, no untyped `Record` shapes; explicit signatures on public functions.
-5. Generic code never depends on specific providers — dependency arrow goes specific → generic.
-6. Respect module hierarchy — do not reach across modules for fields; re-export from the owner.
-7. No legacy or backward-compatibility code unless the spec explicitly requests it.
-8. Tests are part of every behaviour change — coverage of touched modules must not decrease.
-9. Re-review the diff against the plan focused on adversarial cases before declaring done.
-10. Zero code smell in touched code — no duplication, dead code, magic numbers, oversized functions, stray logs.
-11. Lint and type errors take priority — fix in any code you touched before writing more logic.
-12. Layered import direction — outer reusable layers (`src/types`, `src/dao`, `src/dto`, `src/constants`, `src/utils`) MUST NOT import from inner service / domain modules.
+**Always read the canonical document at the start of any substantive task** (implementation, bug fix, refactor, design, plan, code review). The canonical doc is the source of truth — if anything below conflicts with it, the canonical doc wins.
 
-## Design vocabulary (summary)
+## When to use this skill
 
-The canonical doc (`~/.cursor/engineering-standards.md`) names the design principles every change is reviewed against. One bullet per family; the doc is the source of truth and wins on conflicts.
+Trigger on any of:
 
-- **Object-oriented design pillars** — encapsulation (hide implementation, guard invariants), abstraction (depend on contracts not concretes), inheritance sparingly (true *is-a* with Liskov; otherwise compose), polymorphism (dispatch via interface, not `if`-on-type).
-- **SOLID** — SRP (one reason to change), OCP (extend by adding strategies, do not edit working code), LSP (subtypes substitutable, no `NotImplementedError` overrides), ISP (small focused interfaces over wide ones), DIP (high-level and low-level both depend on a shared abstraction; reinforces rules 5 and 12).
-- **Universal design principles** — DRY, KISS, YAGNI, Law of Demeter (no `a.b.c.d.do()` chains), Composition-over-Inheritance, Tell-Don't-Ask, Principle of Least Astonishment, Fail-Fast, Make-Illegal-States-Unrepresentable.
-- **Clean-code basics** — intention-revealing names (no `tmp` / `data` / `helper` placeholders), function size ≤ 30 lines target / ≤ 50 lines hard cap, 0–3 parameters (4+ groups into a typed DTO), comments explain *why* not *what*, domain error types (never `str(e)` in user paths), separate pure computation from effect.
-- **Cohesion and coupling** — high cohesion (a module's symbols change together), low coupling (small stable public surface), separation of concerns (UI / orchestration / domain / persistence / external IO in distinct layers). Rule 12 (layered import direction) is the structural enforcement of low coupling.
+- Writing new code, fixing a bug, or refactoring existing code.
+- Designing a new module, service, integration, or architecture.
+- Producing or updating an implementation plan or spec.
+- Reviewing a diff, PR, or your own work before claiming completion.
 
-## Ask, do not assume
+For backend system design specifically, also load the companion skill [`scalable-system-design`](../scalable-system-design/SKILL.md), which walks new designs through the 7-step questionnaire (workload → state → failure → idempotency → events → observability → safe-failure).
 
-Surface every ambiguous decision via `AskQuestion` (main agent) or a `cursor-checkpoint` block (subagent) — see `~/.cursor/rules/ask-dont-assume.mdc` for the full rule. Never silently pick a default.
+## What to do
 
-## Pre-completion checklist (definition of done)
+### 1. Load the standards
 
-- Lint, format, type-check pass on touched files.
-- Relevant tests pass with output captured.
-- Coverage of touched modules has not decreased.
-- Diff walked once for adversarial cases (null, empty, malformed, concurrent, partial-failure).
-- Reuse search done; no duplicate constants / types / helpers introduced.
-- Layer-direction verified.
-- No legacy / dual-path code introduced.
-- All ambiguities surfaced via `AskQuestion` or `cursor-checkpoint`.
+Read the canonical document and surface the **seventeen** standards (twelve universal + five SOLID), the OOP fundamentals subsection, the design-patterns catalogue, and the pre-completion checklist into your working context.
 
-When the canonical doc and this summary disagree, the canonical doc wins. Pull it forward; do not edit this skill to match.
+The standards in summary:
+
+1. Flat control flow (no nested `if`/`else` or `try`/`catch`).
+2. Code is read more than written.
+3. Reuse before write.
+4. Canonical files (one `*.constants.*`, one `*.types.*`, one `dto/`; one `*.unit.test.ts` per source file).
+5. Zero code smell in touched code.
+6. Re-review every implementation against the plan.
+7. No legacy / back-compat code unless explicitly requested.
+8. Tests are part of the change.
+9. Generic flows must not depend on specific providers/services.
+10. Module hierarchy / nuclear logic.
+11. Strict typing (no `any`, no loose `Record<...>`).
+12. Layered import direction (outer layers do not import from inner service modules).
+13. SRP — single reason to change per class / module / function.
+14. OCP — new variants extend via strategy registration, not by editing a `switch` chain.
+15. LSP — every implementation honours the preconditions, postconditions, and invariants of its interface.
+16. ISP — small, role-specific interfaces over god interfaces.
+17. DIP — high-level modules depend on interfaces; concrete classes are wired at the composition root.
+
+OOP fundamentals (load alongside the SOLID standards): encapsulation, abstraction, polymorphism (not `instanceof` / `switch (type)`), composition over inheritance, tell-don't-ask, Law of Demeter, single level of abstraction within a function.
+
+### 2. Apply during design and planning
+
+- In any plan/spec, add a **Non-Functional Requirements** section that explicitly addresses:
+  - Flat control flow expectations.
+  - Reuse of existing constants/types/DTOs/DAOs (list the specific symbols you plan to reuse).
+  - Strict typing — name the interfaces/schemas you will define or extend.
+  - Generic ↔ provider boundary (which module owns what; what direction imports flow).
+  - Whether any back-compat is required (default: no).
+  - Test plan and coverage commands.
+- Module placement: choose the **lowest** module that owns the data you operate on. Do not pull fields from sibling modules; re-export from the owner or move the symbol.
+
+### 3. Apply during implementation
+
+- Before adding a new constant/type/DTO/DAO/util, search for an existing one and extend it if possible.
+- Keep functions to one level of conditional nesting; extract helpers otherwise.
+- One `try` per logical unit, wrapping only the operation that can throw. Map to a domain error and return or rethrow.
+- No `any`, no `Record<string, unknown>` (and friends) where a real shape exists. Define the type and use it.
+- Do not import from a specific provider/service module inside generic code — generic code is consumed by specific code, never the reverse.
+- Outer reusable layers (`src/types`, `src/dao`, `src/dto`, `src/constants`, `src/utils`, or the equivalents in your project) **MUST NOT** import from inner service / domain modules. Provider-specific code that needs domain types belongs inside the inner module's `<domain>-providers/` sub-module, not in an outer-layer DAO directory. Run `rg "from '\.\./\.\./<inner-module>/" src/types src/dao src/dto src/constants src/utils` for every inner module touched before claiming done; any new entry beyond the project's known-debt list is a layering violation.
+- Do not add legacy/back-compat shims, dual code paths, dead code, commented-out code, or stray logs.
+- Watch for the SOLID-touched anti-patterns and refuse them in your own diff:
+  - **`switch (type)` / `if (provider === 'X')` in business logic** — register the variant in a registry; the dispatcher iterates over the registry. (Standard 14 / OCP.)
+  - **`instanceof` / `switch (kind)` in business logic** — use polymorphism. Either the type system is wrong or the polymorphism is missing. (OOP fundamentals.)
+  - **Inheritance chain** (apart from framework-mandated bases like `Error`, `EventEmitter`, an ORM `Model`) — use composition. (OOP fundamentals.)
+  - **God interface** (one `Repository` with thirty methods consumed by every reader and writer) — split into role-specific ports. (Standard 16 / ISP.)
+  - **Public mutable field** — encapsulate behind a behaviour-named method. (OOP fundamentals — encapsulation.)
+  - **High-level service constructing a concrete dependency inside its body** — inject the abstraction; wire the concrete at the composition root. (Standard 17 / DIP.)
+  - **Subtype that throws an error type the supertype does not declare**, or strengthens a precondition — fix the subtype or the interface contract. (Standard 15 / LSP.)
+  - **Two unrelated reasons one class would change** — split into two classes. (Standard 13 / SRP.)
+
+### 4. Run the pre-completion checklist before claiming done
+
+Always copy the checklist from the canonical document into a TodoWrite list and tick each item with evidence (lint output, test output, links to the constants/types reused). The checklist is non-negotiable; do not narrate around a failing item — fix it.
+
+Failing the checklist means the work is not done.
+
+### 5. Lint errors take priority
+
+If linter or type errors are present anywhere in code you touched, fix them **before** writing more logic. New code on top of unresolved lints is considered an unfinished change.
+
+## Anti-patterns to refuse
+
+- "We'll keep the old path for backward compatibility" — only if the spec explicitly asks for it.
+- "I'll use `Record<string, any>` for now" — define the real type now.
+- "Quick try/catch around the whole function" — wrap only the throwing call; map to a domain error.
+- "I'll just inline this constant; it's only used here" — if it represents a domain concept, it belongs in the canonical constants file.
+- "Generic code can import this provider helper just this once" — no. Invert the dependency.
+- "I'll put this new constant in a new `<feature>.constants.ts` next to the existing `<module>.constants.ts`" — extend the canonical file instead.
+- "I'll create a `<class-or-method>.unit.test.ts` next to the existing `<source-file>.unit.test.ts`" — add a sibling `describe(...)` block in the canonical test file instead.
+- "I'll add another `case "newProvider":` to the existing `switch`" — register the new provider as a strategy in the registry; the dispatcher does not change.
+- "A quick `instanceof` check is fine here" — no. Move the branch behind a polymorphic interface method.
+- "I'll just extend the existing class to add this behaviour" — compose the new behaviour as a collaborator instead, unless the base class is framework-mandated.
+- "One `Repository` with thirty methods is simpler than five small ports" — the consumer never depends on methods it does not use; split per role.
+- "The high-level service can `new StripeProvider()` directly inside the method" — inject the abstraction; wire the concrete at the composition root once.
+
+## Reference
+
+- Canonical: [`~/.cursor/engineering-standards.md`](~/.cursor/engineering-standards.md).
+- Workspace-level rules at `<repo>/.cursor/rules/*.mdc` (when present) pin tech-stack-specific guidance and known-debt entries; they win on conflicts within that repo.

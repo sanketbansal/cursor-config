@@ -1,61 +1,91 @@
 ---
 name: scalable-system-design
-description: Apply the canonical scalable-backend-design doc (`~/.cursor/scalable-backend-design.md`) when designing a new service, integration, async pipeline, caching layer, distributed AI system, or migration. Walk the 7-step questionnaire and apply the 12 primitives before producing the design.
+description: Use whenever designing a new backend service, integration, async pipeline, caching layer, or migration. Walks the design through a 7-step questionnaire (workload shape, state and consistency, failure modes, idempotency and dual-write, event delivery and ordering, observability, safe failure / blast-radius) and applies the 12 system-design primitives (idempotency keys, transactional outbox, idempotent consumers, circuit breakers, retries with backoff and jitter, bulkheads, backpressure, graceful shutdown, liveness vs readiness, caching strategy, observability, forward-only migrations). Always load before producing the design.
 ---
 
-# Scalable system design
+# Scalable System Design
 
-Read the canonical document at `~/.cursor/scalable-backend-design.md` whenever designing a new service, integration, async pipeline, caching layer, AI / LLM service, or migration.
+This skill enforces the universal scalable-backend system-design primitives defined in the canonical document:
 
-## Procedure
+> [`~/.cursor/scalable-backend-design.md`](~/.cursor/scalable-backend-design.md)
 
-Walk the 7-step questionnaire below before producing the design. Then for each design, name every one of the 12 primitives (including "we do not need this and here is why" answers).
+**Always read the canonical document at the start of any design / architecture task** for a backend service. The canonical doc is the source of truth — if anything below conflicts with it, the canonical doc wins.
 
-### 7-step questionnaire
+This skill runs alongside [`engineering-standards`](../engineering-standards/SKILL.md): that skill governs *how* code is written; this one governs *what shape* the system has.
 
-1. Workload shape — concurrent users / sessions, requests / second, p95 / p99 latency targets, peak vs average, hot keys, fan-out shape.
-2. State and consistency — what survives a crash, what is idempotent, what is OK to lose, read-after-write expectations.
-3. Failure modes — upstream timeout, partial failure, schema drift, network partition, deploy mid-flight, slow consumer, poison message.
-4. Idempotency and dual-write — exactly-once boundaries, idempotency-key derivation, outbox boundary, reconciliation.
-5. Event delivery and ordering — per-key ordering, at-least-once vs exactly-once, retries, dead-letter, partition strategy.
-6. Observability — RED metrics per layer, correlation IDs threaded end-to-end, trace fields, log destinations, sampling.
-7. Safe failure / blast radius — degraded behaviour when X is down, escalation, tenant isolation, blast-radius caps.
+## When to use this skill
 
-### 12 primitives (the contract)
+Trigger on any of:
 
-1. Idempotency keys.
-2. Transactional outbox.
-3. Idempotent consumers.
-4. Circuit breakers.
-5. Retries with backoff + jitter.
-6. Bulkheads.
-7. Backpressure.
-8. Graceful shutdown.
-9. Liveness vs readiness.
-10. Caching strategy.
-11. Observability (RED + correlation + tracing).
-12. Forward-only migrations.
+- "Design a new service / module / endpoint."
+- "Add an integration with `<external provider>`."
+- "Add an async / batch / scheduled / queue / message-bus pipeline."
+- "Add caching for X."
+- "Refactor X to scale to Y."
+- "Migrate X to Y."
+- "Plan an architectural change to a backend service."
 
-### AI-specific extensions (apply on top, for LLM systems)
+## What to do
 
-- Token-budget control per turn and per session.
-- Prompt-caching layout discipline (static system block first).
-- Cost guardrails (per-tenant quotas, model downshift).
-- Model A/B / multi-armed-bandit routing.
-- Eval harness as a first-class deliverable.
-- Drift detection on classifier inputs and upstream response shapes.
+### 1. Load the canonical doc
 
-## Ask, do not assume
+Read `~/.cursor/scalable-backend-design.md` and surface the 12 primitives plus the 7-step design walkthrough into your working context.
 
-Surface every ambiguous decision via `AskQuestion` or `cursor-checkpoint` — see `~/.cursor/rules/ask-dont-assume.mdc`. Naming a constraint before picking a pattern is the design's most important step; do not ship a pattern in search of a problem.
+### 2. Walk the 7 questions before producing the design
 
-## Definition of done for a design
+For each step, write the answer **explicitly in the design**. Do not skip a step because it "obviously doesn't apply" — write a one-line justification and move on.
 
-- 7 questionnaire steps answered.
-- 12 primitives addressed.
-- For AI systems, 6 AI extensions addressed.
-- Capacity model with order-of-magnitude numbers.
-- Failure-mode matrix.
-- Eval / verification plan with success thresholds.
-- Cost model (when relevant).
-- Zero ambiguities left as silent defaults.
+1. **Workload shape** — read- vs write-heavy; sustained / peak / worst-case throughput; latency budget; sync vs async; payload size bounds. Mark unknowns as assumptions.
+2. **State + consistency** — where state lives; read-your-writes requirements; per-entity ordering; multi-row mutation needs; consistency level per operation.
+3. **Failure modes** — for each external dependency answer: what if it's slow, what if it's down, what if a single call partially succeeds, what's the blast radius.
+4. **Idempotency + dual-write** — `Idempotency-Key` header and DB unique index in the same transaction; transactional outbox for DB → message-bus atomicity; consumers idempotent by business key.
+5. **Event delivery + ordering** — topic / queue / stream choice; partition key; manual ack / commit only after success; retry / DLQ policy with structured headers; schema versioning.
+6. **Observability** — RED metrics per endpoint and per consumer; structured JSON logs with correlation ID; distributed tracing across HTTP and message-bus; SLO-based alerting (not raw error counts).
+7. **Safe failure / blast-radius** — worst case if unavailable; worst case if lying; rollback path (forward-only migrations); graceful shutdown on SIGTERM; liveness vs readiness as separate endpoints.
+
+### 3. Output format
+
+The design that comes out of this skill includes (at minimum) sections labelled:
+
+```
+## 1. Workload shape
+...
+## 2. State + consistency
+...
+## 3. Failure modes
+...
+## 4. Idempotency + dual-write
+...
+## 5. Event delivery + ordering           (or: "n/a — no async paths")
+...
+## 6. Observability
+...
+## 7. Safe failure / blast-radius bound
+...
+## Open questions / assumptions
+- <items the team needs to confirm>
+```
+
+A reviewer should be able to read the design top-to-bottom and find where each scalability concern was addressed without searching for it.
+
+### 4. Hand off to implementation
+
+Once the design is approved, the [`engineering-standards`](../engineering-standards/SKILL.md) skill takes over for the implementation phase. Tech-stack-specific rules at `<repo>/.cursor/rules/*.mdc` (when present) provide the concrete contracts (Postgres pool sizing, Kafka commit semantics, Redis client choice, framework conventions, CI/CD patterns, etc.).
+
+## Anti-patterns to refuse
+
+- "We'll add idempotency later" for a mutating endpoint.
+- DB write followed by message-bus publish without an outbox.
+- Consumer with auto-commit on, or commit at message offset instead of "next" offset.
+- Cache without a documented TTL, key shape, or invalidation path.
+- New service with one health-check endpoint that does both liveness and readiness.
+- Retries with no jitter, no max attempts, no deadline.
+- "Designed for scale" without naming a target throughput / latency.
+- Designing scalability for a workload that is genuinely small (e.g. an admin endpoint with 1 request / hour does not need a circuit breaker, retry queue, and DLQ — name the constraint, then pick the pattern).
+- "We'll use exactly-once delivery" — exactly-once is mathematically impossible in a distributed system; design for at-least-once + idempotency.
+
+## Reference
+
+- Canonical: [`~/.cursor/scalable-backend-design.md`](~/.cursor/scalable-backend-design.md).
+- Companion skill: [`~/.cursor/skills/engineering-standards/SKILL.md`](../engineering-standards/SKILL.md).
+- Workspace-level rules at `<repo>/.cursor/rules/scalable-backend-design.mdc` and tech-specific rules pin the exact tech-stack contracts for that repo.

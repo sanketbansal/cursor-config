@@ -1,85 +1,248 @@
 ---
 name: subagent-orchestration
-description: Discover registered subagents, build the dependency graph for the current task, dispatch by topology, and relay clarifying questions from subagents to the user. Use whenever the user gives a non-trivial coding, design, deployment, audit, or review task.
+description: Use whenever you receive a non-trivial coding, design, deployment, audit, or review task. Discovers the registered subagent roster, classifies each agent by its declared `produces` and `consumes` artefact types, builds a per-task dependency graph from the user's terminal artefact backwards, dispatches subagents respecting that graph (sequential where edges exist, parallel where they don't), and enforces the human-in-the-loop relay contract — when any subagent returns a fenced `cursor-checkpoint` YAML block, the parent MUST relay the question to the user via `AskQuestion` verbatim and then resume the subagent with the user's answer. Roster-agnostic and dataflow-driven; no fixed workflow templates, no hard-coded subagent names.
 ---
 
-# Subagent orchestration
+# Subagent Orchestration
 
-This skill defines how the parent Cursor agent discovers, dispatches, and relays for custom subagents — and the inviolable rule that any subagent's clarifying question is surfaced to the user verbatim.
+This skill is the parent agent's runbook for working with subagents registered under `~/.cursor/agents/` (and `<workspace>/.cursor/agents/` if present). It is **not** a workflow template. It is a procedure for constructing a per-task dependency graph from each agent's declared capabilities and dispatching the graph correctly.
 
-## Canonical ask-don't-assume boilerplate
+Two non-negotiables sit at the top because they are the two failure modes this skill exists to prevent:
 
-Every custom subagent must include this paragraph in its system prompt, character-for-character:
-
-> When any parameter in the user's request is ambiguous, you must emit a `cursor-checkpoint` block to the parent (per the schema in `~/.cursor/skills/subagent-orchestration/SKILL.md`). You must not pre-answer your own clarifying questions, must not silently pick defaults, and must not proceed past an unconfirmed assumption on any decision touching credentials, irreversible operations, scope of work, public API shape, or destination of a write. The parent will surface the question to the user and resume you with the answer.
-
-This is the canonical source of truth for the wording. The same paragraph appears in `~/.cursor/agents/ai-engineer.md` (Section 2.8) and in any future custom subagent.
+1. **Never invent answers to subagent checkpoint questions.** If a subagent emits a `cursor-checkpoint` block, the parent must relay it to the user via `AskQuestion` before any other tool call. The verbatim question and options text. No paraphrasing. No silent defaults. (See §6 Relay protocol.)
+2. **Never consult a fixed pipeline diagram.** The parent does not say "this is a new feature, so the order is PM → Principal → Staff → SWE → DevOps." The parent runs §4 Dependency-graph procedure for every task and lets the actual dependencies pick the order. (See §3 Artefact vocabulary and §4 Dependency-graph procedure.)
 
 ## When to use this skill
 
-For non-trivial tasks: implementation, design, deployment, audit, review, debugging that spans multiple subsystems. Trivial tasks (typo, single-line lint fix, doc tweak, single-token rename) skip the procedure entirely — handle them directly.
+Trigger on any of:
 
-## Procedure
+- The user gives a coding task that is non-trivial (anything beyond a typo, comment, doc tweak, or one-line lint fix).
+- The user gives a design, architecture, refactor, audit, security review, performance review, or planning task.
+- The user attaches a PRD, plan, architecture doc, or other artefact and asks for downstream work.
+- The user explicitly invokes a subagent by name (e.g. `@staff-engineer`, `/dev-ops`) — even then, run the procedure to confirm the chosen agent fits the task and to discover any companion agents the work needs.
 
-The procedure is discovery-driven and dataflow-driven. The roster of subagents is a runtime input; the registered list changes over time. Do not hard-code subagent names.
+Skip when the task is trivially in scope of the parent agent and has no design, planning, or multi-step delivery component (typo, doc tweak, single-token rename, single-line config change). The parent handles those directly.
 
-1. Discover. List registered subagents under `~/.cursor/agents/` (and `<workspace>/.cursor/agents/` if present). Read each agent's frontmatter — specifically `produces`, `consumes`, and `description`. Build a capability index from artefact-type to producer agents.
-2. Identify the terminal artefact(s) the user's task requires (`code-diff`, `architecture-doc`, `lld-plan`, `prd`, `deploy-artefact`, `review-report`, `bug-diagnosis`, etc. — see the vocabulary section below). Identify which artefacts are already provided by the user (uploaded files, repo `.cursor/plans/`, prior chat context, existing repo source).
-3. Build the dependency graph for THIS task by walking backwards from the terminal artefact through the capability index. Stop at leaves that are already provided. Different tasks produce different graphs.
-4. Dispatch by graph topology. Run nodes whose dependencies are satisfied; multiple ready nodes run in parallel via concurrent `Task` calls in a single message. Sequential vs parallel falls out of the graph, not from a separate ruleset.
-5. No registered producer for a needed artefact, ambiguous tiebreak between producers, cyclic graph, or terminal artefact that does not fit the vocabulary — ask the user via `AskQuestion`. Do not substitute or invent.
+## §1 Marker contract — the `cursor-checkpoint` block
 
-## Relay rule (inviolable)
+Every subagent that wants human-in-the-loop relay emits a fenced code block with info-string `cursor-checkpoint` at every checkpoint return. The parent (and the `subagentStop` hook at `~/.cursor/hooks/relay-subagent-checkpoint.sh`) recognise this block and trigger relay.
 
-When any subagent returns output containing a fenced code block whose info-string is `cursor-checkpoint`, your first action must be to relay the embedded question to the user via the `AskQuestion` tool, with the subagent's `question` and `options` verbatim.
+Schema:
 
-- Do not assume an answer.
-- Do not paraphrase the question.
-- Do not take any other tool action before the user responds.
-- After the user answers, resume the same subagent with `Task(subagent_type=<same>, resume=<agent_id>, prompt=<answer prepended to a brief continue-instruction>)` — never start a fresh instance of the same subagent for the same task.
-- Other graph nodes already in flight continue while the paused node waits.
+````
+```cursor-checkpoint
+kind: question                      # always "question" for now; reserved: "approval", "blocked"
+agent: staff-engineer               # subagent id (matches the agent's filename + frontmatter `name`)
+checkpoint: A                       # checkpoint id from the subagent's HITL protocol — A, B, …
+question: |
+  The full question text the parent will pass to AskQuestion verbatim.
+  Multi-line is fine; YAML block scalar preserves it.
+options:
+  - id: brownfield
+    label: Extend existing provider-registry module
+    tradeoff: lowest reuse cost; risk of broadening the registry's responsibility
+  - id: parallel
+    label: New parallel module
+    tradeoff: clearer SRP; new test surface and wiring root
+default: brownfield                 # one of the option ids above
+```
+````
 
-The relay rule applies to any subagent that emits the `cursor-checkpoint` block, current or future. You do not need a list of which subagents emit it; the marker is the trigger. A `subagentStop` hook at `~/.cursor/hooks/relay-subagent-checkpoint.sh` injects a `followup_message` reminding you of this rule the moment a subagent returns with the marker — but the rule holds even when the hook is unavailable.
+Field semantics:
 
-## `cursor-checkpoint` block schema
+- `kind` (string, enum) — `question` is the only kind today. Future kinds (`approval`, `blocked`) are reserved; treat unknown kinds as `question` defensively.
+- `agent` (string) — the subagent's id, matching the filename of `~/.cursor/agents/<id>.md` and its frontmatter `name`. Used in the relay instruction so the parent passes `subagent_type=<agent>` on resume.
+- `checkpoint` (string) — the checkpoint label from the subagent's own HITL protocol (`A`, `B`, …). Echoed in the relay instruction for context.
+- `question` (string, YAML block scalar) — the full question text. The parent passes this **verbatim** as the AskQuestion `prompt`. No paraphrasing.
+- `options` (list of `{id, label, tradeoff}`) — the option set. Each becomes one option in the AskQuestion call. The `tradeoff` is shown to the user inline so they understand what each choice gives up.
+- `default` (string) — the recommended default option id. Surfaced to the user as a recommendation but does NOT skip the AskQuestion call. The user always answers explicitly.
 
-Subagents emit clarifying questions in a fenced block tagged `cursor-checkpoint`. The block body is YAML. Required fields:
+Hard rules around the marker:
 
-- `question` — the clarifying question to surface to the user, verbatim, in plain prose.
-- `options` — list of answer options. Each option has `id` (short stable identifier) and `label` (display text, in complete sentences).
+- The block appears **only** on a checkpoint return, not on terminal output. Terminal output ends with the deliverable, no marker. This separates "I am pausing for input" from "I am done."
+- One block per return. If a subagent has multiple questions, it emits one block per checkpoint cycle (the parent relays, resumes, the subagent advances and may emit another block at the next checkpoint).
+- The block is plain YAML inside a fenced code block whose info-string is exactly `cursor-checkpoint`. Variants (`checkpoint`, `cursor_checkpoint`) are not recognised.
 
-Optional fields:
+## §2 Discovery procedure
 
-- `context` — one or two sentences explaining why the question matters and what hinges on the answer. The parent may include this in the `AskQuestion` prompt as additional context.
-- `allow_multiple` — boolean; defaults to `false`. Set to `true` if the user can pick more than one option.
+The first step of every non-trivial delegation. Builds the capability index from the live filesystem state. The roster is a runtime input — never hard-code subagent names anywhere except inside the agent files themselves.
 
-Example shape (not enclosed in three backticks here so the example does not look like a real checkpoint to the parent):
+1. **List registered subagent files.** Glob `~/.cursor/agents/*.md` and `<workspace>/.cursor/agents/*.md` (if the current workspace has a `.cursor/agents/` directory). Cursor's built-in subagent types (`generalPurpose`, `explore`, `shell`, `browser-use`, `cursor-guide`, `best-of-n-runner`, `dev-ops` once registered, etc.) are also available via the `Task` tool's `subagent_type` parameter; the parent already knows their descriptors from the system prompt.
+2. **Read each agent's frontmatter.** Three fields drive orchestration:
+   - `name` (string) — the agent id passed as `subagent_type` on `Task` calls.
+   - `produces` (list of artefact-type IDs) — what the agent outputs. Used to find producers for required artefacts.
+   - `consumes` (list of artefact-type IDs) — what the agent needs as inputs. Used to recurse the dependency walk.
+   - The free-text `description` is for human readability and tiebreakers when multiple agents declare overlapping `produces`.
+3. **Build the capability index.** A bidirectional map:
+   - artefact-type → {agents that produce it}
+   - agent → {artefact-types it consumes}
+4. **Cache the index for this delegation only.** The next user task triggers a fresh discovery pass — the roster may have changed.
 
-    ~~~cursor-checkpoint
-    question: "Which judge model should the eval harness use?"
-    options:
-      - id: gpt-4o
-        label: "Use gpt-4o (lower judgment variance, ~10x output-token cost)."
-      - id: gpt-4.1-mini
-        label: "Use gpt-4.1-mini (cheaper and faster, slightly higher variance)."
-    context: "The judge model affects per-run flake rate and per-run cost. We expect ~360 scenarios per run."
-    ~~~
+## §3 Artefact vocabulary
 
-The parent maps the `cursor-checkpoint` block to an `AskQuestion` call where `prompt` is `question` (with `context` appended in italics if present), and `options` is the verbatim list of `{id, label}` pairs.
+The shared type system that `produces`/`consumes` declarations align against. This is the canonical list; subagent frontmatter may only reference IDs in this table.
 
-## Vocabulary contract
+| Artefact type | Description | Typical producer (today) | Typical consumer (today) |
+| --- | --- | --- | --- |
+| `business-prompt` | Raw user ask in natural language | the user (always supplied at the start of a session) | `product-manager` |
+| `prd` | Product requirements doc with FR / NFR IDs, acceptance criteria, edge cases | `product-manager` | `principal-engineer`, `staff-engineer` |
+| `architecture-doc` | System architecture + ADRs + atomicity / failure model | `principal-engineer` | `staff-engineer` |
+| `lld-plan` | Module decomposition + schema + sequenced waves (no code) | `staff-engineer` | `software-engineer`, `dev-ops` |
+| `code-diff` | Production code + tests | `software-engineer` | `dev-ops`, future review agents |
+| `deploy-artefact` | Dockerfile / workflow / IaC / package-manager scripts | `dev-ops` | (terminal — consumed by humans / CI) |
+| `review-report` | Audit findings (code review, security audit, performance audit, accessibility audit, etc.) | future review agents | (terminal, OR feeds back upstream as input for a revision) |
+| `bug-diagnosis` | Root-cause analysis with reproduction + fix sketch | parent itself, or a future debugger agent | `software-engineer`, `staff-engineer` |
 
-Use these artefact-type names in `produces` / `consumes` frontmatter so the dependency graph compiles cleanly:
+Rules for this vocabulary:
 
-- `prd` — product requirements doc.
-- `architecture-doc` — high-level system context, components, data flow.
-- `lld-plan` — low-level design / implementation plan.
-- `distributed-design` — capacity, scaling, failure modes.
-- `eval-design` — golden grids, critique scenarios, drift probes.
-- `code-context` — read-only source / repo context for downstream agents.
-- `code-diff` — produced by implementer agents.
-- `review-report` — produced by reviewer agents.
-- `bug-diagnosis` — produced by debug agents.
-- `deploy-artefact` — produced by deploy agents.
+- The vocabulary is a working set, not a closed taxonomy. New artefact types may be added — but only via a deliberate edit to this table when a new subagent is onboarded that needs them. See §8 Onboarding.
+- The parent must NOT invent new artefact-type IDs at runtime. If the user's terminal artefact does not fit any existing type, the parent surfaces the gap via `AskQuestion` rather than guessing.
+- An "artefact already provided" check (used in the dependency walk) recognises any of: a file uploaded in chat, a path the user mentions in their prompt, a `*.plan.md` file under `.cursor/plans/` or a sibling location for the relevant artefact type, the existing repo source for `code-diff`, a prior subagent's terminal output during the same task.
 
-If you need a new artefact type, add it here first and update every consumer / producer in the same change — the dependency graph compiles by name match, so a typo silently disconnects nodes.
+## §4 Dependency-graph procedure
+
+The parent runs this procedure for every non-trivial task. Same procedure for every task; different tasks produce different graphs.
+
+```mermaid
+flowchart TD
+    Start[User task arrives] --> A1{Trivial<br/>typo doc-tweak one-line-fix}
+    A1 -- yes --> Done1[Parent handles directly. No subagents.]
+    A1 -- no --> A2[Identify terminal artefact-s the task requires]
+    A2 --> A3[Identify artefacts already provided<br/>uploads links plans repo source]
+    A3 --> A4[Walk backwards through capability index]
+    A4 --> A5{Required artefact already provided}
+    A5 -- yes --> A6[Mark satisfied no producer needed]
+    A5 -- no --> A7[Add producer subagent as a graph node]
+    A7 --> A8[Recurse on producer's consumed artefacts]
+    A8 --> A4
+    A6 --> A9{Graph complete all leaves satisfied}
+    A9 -- no --> A4
+    A9 -- yes --> A10[Topologically sort the graph]
+    A10 --> A11[Dispatch nodes whose dependencies are satisfied]
+    A11 --> A12{Multiple ready nodes}
+    A12 -- yes --> A13[Run in parallel via concurrent Task calls]
+    A12 -- no --> A14[Run the single ready node]
+    A13 --> A15[Wait completions mark produced artefacts satisfied]
+    A14 --> A15
+    A15 --> A16{Terminal artefact produced}
+    A16 -- no --> A11
+    A16 -- yes --> Done2[Return result to user]
+```
+
+Step-by-step:
+
+1. **Trivial check.** If the task is a typo, doc tweak, comment, single-line lint fix, single-token rename, or trivial config change with no design or planning component → parent handles directly, no subagents, no procedure. End.
+2. **Identify the terminal artefact(s).** Read the user's task. What does the user actually want as the deliverable? Common endings:
+   - "Implement / build / write the code for X" → `code-diff`.
+   - "Build and deploy X" → `code-diff` + `deploy-artefact`.
+   - "Design X" → `architecture-doc` (if system-level) or `lld-plan` (if module-level).
+   - "Write the PRD / requirements for X" → `prd`.
+   - "Audit / review X" → `review-report` (one or more).
+   - "Diagnose / fix this bug" → `code-diff` (preceded by `bug-diagnosis` if root-cause is non-obvious).
+   - Ambiguous → ask the user via `AskQuestion`.
+3. **Identify already-provided artefacts.** Walk the chat context, attached files, repo `.cursor/plans/`, the repo source. If the user attached a PRD, `prd` is satisfied. If a plan exists, `lld-plan` is satisfied. If the task references existing code, `code-diff` is satisfied for the audit-style cases.
+4. **Build the graph backwards.** For each terminal artefact:
+   - Look up its producers in the capability index.
+   - If it is already provided → mark the leaf satisfied, do not add a node.
+   - Otherwise add the producer as a graph node, then recurse on each of that producer's `consumes` artefacts.
+   - The recursion bottoms out at `business-prompt` (always satisfied — it's the user's task) or any other already-provided artefact.
+5. **Resolve ambiguity at graph-construction time, not at dispatch time.**
+   - If the terminal artefact maps to no registered producer → ask the user via `AskQuestion` ("I don't have an agent that produces a `<type>`; how do you want to proceed?"). Do not substitute a different agent.
+   - If the graph is cyclic (A produces B's input and B produces A's input) → reject, ask the user.
+   - If multiple agents declare the same `produces` for an artefact the graph needs → tiebreak by description match against the task; if still ambiguous, ask the user which one.
+6. **Topologically sort the graph.** Sources (no incoming edges) first; terminals last.
+7. **Dispatch loop.** Repeat until the terminal artefact is produced:
+   - Collect every node whose dependencies are all satisfied.
+   - If there are multiple → issue concurrent `Task` calls in a single message (parallel dispatch).
+   - If there is one → issue one `Task` call.
+   - Wait for completions. Mark the produced artefacts satisfied. If any returned a `cursor-checkpoint` block → trigger the §6 Relay protocol for that node and continue dispatching siblings already in flight.
+8. **Plan revision during execution.** If a subagent's output reveals the graph is wrong (architecture turns out unsuitable; PRD is missing a requirement; the plan needs a redesign) → revise the graph: add nodes upstream, mark affected downstream artefacts unsatisfied, re-execute the affected subtree. Tell the user via `AskQuestion` before doing this when the revision changes the user-visible scope.
+
+### Worked examples (illustrative outputs of the procedure, not templates)
+
+These show what the procedure produces for various task shapes. **Do not** memorise these and pattern-match. Always run the procedure.
+
+- **"Fix the typo in README"** → trivial branch. Parent edits, done.
+- **"Why is this query slow? Fix it."** → terminal: `code-diff`. Walk back: `code-diff` ← `bug-diagnosis` ← (user-provided runtime context). Parent runs the diagnosis itself or invokes a future debugger agent, then dispatches `software-engineer`. Two-node graph.
+- **"Build a notifications service"** → terminal: `code-diff` + `deploy-artefact`. Walk back: each needs `lld-plan`; `lld-plan` needs `prd` + `architecture-doc`; `architecture-doc` needs `prd`; `prd` needs `business-prompt` (user-provided). Sequential chain `product-manager → principal-engineer → staff-engineer` then a fork into `software-engineer` and (after `code-diff` is produced) `dev-ops`.
+- **"Audit security and audit performance of the auth module"** → terminal: two parallel `review-report` artefacts. Each needs `code-diff` (already in repo, satisfied). Two parallel reviewer agents fire simultaneously. Two-node parallel graph.
+- **"Here is a PRD; build the system"** → terminal: `code-diff` (+ `deploy-artefact` if runtime change). The user-attached PRD satisfies the `prd` leaf, so `product-manager` is skipped. Graph starts at `principal-engineer`.
+- **"Refactor the payment registry; here's the plan"** → terminal: `code-diff`. User-provided plan satisfies `lld-plan`. Graph is one node: `software-engineer`.
+- **"Write a PRD for the new export feature"** → terminal: `prd`. Single-node graph: `product-manager`.
+
+In each case the parent did not consult a fixed workflow. It built the graph from the artefact dependencies for the actual task, given what the user actually provided. Different tasks produce different graphs. Same task with different prior context produces a different graph.
+
+## §5 Concurrency from the graph
+
+Concurrency is not a separate ruleset. It is a property of the graph the procedure produces.
+
+- **Sequential** edges exist where one node consumes another node's output. The downstream node waits.
+- **Parallel** dispatch happens when the dispatcher loop finds multiple nodes whose dependencies are all satisfied at the same time. Issue concurrent `Task` calls **in a single message** (the parent's `Task` tool supports multiple concurrent invocations per message).
+- **Mid-graph checkpoint** pauses only the node that returned the marker. Sibling nodes already in flight keep running. After the user answers and the paused node resumes-and-completes, the dispatcher loop picks up.
+- **No fixed parallelism table.** Whether two `staff-engineer` invocations can run in parallel depends on whether their `consumes` sets overlap on a non-satisfied artefact in the same graph. If yes, sequential. If no, parallel. Same for any subagent type, current or future.
+
+## §6 Relay protocol — the inviolable rule
+
+When any subagent returns, the parent's **first action** is to scan its output for a `cursor-checkpoint` block.
+
+If a block is present:
+
+1. **The hook will already have injected a `followup_message`** (from `~/.cursor/hooks/relay-subagent-checkpoint.sh`) instructing the parent to call `AskQuestion`. If the hook is unavailable (chmod, missing python3, etc.) the parent does it anyway based on this skill and the User Rules.
+2. **Call `AskQuestion`** with:
+   - `prompt` = the subagent's `question` field, **verbatim**. No paraphrasing, no summarisation, no rewriting.
+   - `options` = the subagent's `options` list, one AskQuestion option per row. Use the row's `id` as the option `id`, the `label` (optionally followed by " — " + `tradeoff`) as the option `label`. The `default` is shown to the user as a recommendation in the prompt text but does NOT pre-select.
+3. **Do not take any other tool action** until the user responds. No reads, no writes, no other Tasks. The relay is the only thing in flight.
+4. **After the user answers**, resume the same subagent via:
+   ```
+   Task(subagent_type=<agent from marker>, resume=<agent_id from the prior Task return>, prompt=<user's answer prepended to a brief continue-instruction>)
+   ```
+   Never start a fresh subagent of the same type for the same task — `resume` preserves the subagent's draft and context. Starting fresh discards everything the subagent has built.
+5. **Other graph nodes already in flight continue.** The pause is per-node, not graph-wide.
+
+If no block is present, the subagent has produced terminal output. Mark its declared `produces` artefacts as satisfied and continue the dispatcher loop.
+
+The relay contract applies to **any** subagent that emits the `cursor-checkpoint` block. You do not maintain a list of which subagents emit it. The marker is the trigger.
+
+## §7 Resume contract
+
+When resuming a subagent via `Task(resume=<agent_id>, …)`:
+
+- Pass the user's answer as the start of the `prompt`. The subagent's HITL protocol expects this — its first action on resume is to read the answer and apply it.
+- Append a short continue-instruction telling the subagent what to do next ("Apply the answer to the relevant section in place. Advance to the next checkpoint or terminate.") only if the subagent's HITL protocol does not already cover that.
+- Do NOT re-pass the original task description on resume. The subagent already has it from the first call.
+- Do NOT reset the `mode` (e.g. `mode: review-each-section`) on resume. The subagent already knows it from the first call.
+
+If a subagent returns an error or terminates without producing its declared `produces` artefact, surface the failure to the user via a regular response and ask whether to retry, switch agents, or abandon the graph.
+
+## §8 Onboarding a new subagent
+
+A concise checklist for adding a new subagent later. The orchestration layer needs **no** changes when a typical new subagent is added — discovery + capability declarations + marker contract handle it.
+
+1. Place the subagent file at `~/.cursor/agents/<id>.md` (global) or `<workspace>/.cursor/agents/<id>.md` (workspace-scoped).
+2. Frontmatter must include four fields:
+   - `name: <id>` — the agent id, matching the filename.
+   - `description: <one-sentence capability statement>` — used for human readability and tiebreaker when multiple agents declare the same `produces`.
+   - `produces: [<artefact-type-ids>]` — what the agent outputs, drawn from §3 Artefact vocabulary.
+   - `consumes: [<artefact-type-ids>]` — what the agent needs as inputs, drawn from §3 Artefact vocabulary.
+3. If the new agent introduces an artefact type that does not yet exist in the §3 vocabulary, **add the row to the vocabulary table in this skill in the same change**. New artefact types should be rare and named carefully; reuse existing types when possible.
+4. If the subagent should pause for user input, include a one-paragraph "Checkpoint output contract" subsection inside its body that points at this skill's §1 marker schema and confirms compliance. No marker → no HITL relay; the agent runs to terminal output and the parent marks its produced artefacts satisfied.
+5. **No changes** to `~/.cursor/hooks/relay-subagent-checkpoint.sh`, `~/.cursor/hooks.json`, or the User Rules section are needed for a new subagent. The hook fires on every `subagentStop` event regardless of agent type, the script filters by marker presence, and the User Rules instruction is roster-agnostic.
+
+## §9 Anti-patterns to refuse
+
+- **"This looks like a new feature, so I'll run PM → Principal → Staff → SWE → DevOps."** No — run §4 Dependency-graph procedure. The procedure may produce that exact chain, but it must produce it from the dependencies, not from a memorised template. If the user attached a PRD the chain is shorter; if the task is a refactor it doesn't need PM at all.
+- **"The subagent's checkpoint question has an obvious answer; I'll proceed with my best guess and tell the user later."** No — call `AskQuestion`. The subagent paused for a reason; the answer determines downstream nodes.
+- **"The user said `/staff-engineer`, so I'll dispatch only `staff-engineer`."** Run the procedure first. The user's slash-prefix is a hint about which agent to use; it doesn't tell you what other agents the work needs. If the user asked for "a complete LLD plan for a new service" but didn't provide a PRD, the graph needs `product-manager` upstream.
+- **"There's no agent for this artefact type; I'll use `staff-engineer` because it's close."** No — ask the user. Substituting a non-matching producer is how plans go wrong silently.
+- **"I'll run two `software-engineer` invocations in parallel because they're both implementations."** Only if their `consumes` sets do not overlap on a non-satisfied artefact. Two implementations of the same wave of the same plan are sequential by data dependency; two waves of independent modules are parallel.
+- **"I'll skip the marker check on terminal output."** Always scan. Some subagents emit a marker on what looks like terminal output if their HITL protocol is mid-cycle. The cost of scanning is zero; the cost of missing a relay is a wrong default that ships.
+- **"The hook is broken / off, so I don't need to relay."** Wrong. The hook is defence in depth. The User Rules and this skill require the parent to relay regardless of hook state. The hook just makes ignoring the requirement harder.
+- **"I'll start a fresh `staff-engineer` instead of resuming."** Never. Resume preserves the draft and the prior checkpoint history. A fresh start discards everything and forces the user to re-answer prior checkpoints.
+- **"I'll invent a new artefact type because the existing vocabulary doesn't quite fit."** No — ask the user via `AskQuestion`. If a new type really is needed, it gets added to §3 explicitly, not on the fly.
+
+## References
+
+- The hook contract — `~/.cursor/hooks.json` and `~/.cursor/hooks/relay-subagent-checkpoint.sh`. The hook fires on `subagentStop`, scans for the §1 marker, injects a `followup_message` instructing the parent to call `AskQuestion`. `failClosed: false` so a hook bug never wedges the agent.
+- The User Rules — the parent-side hard rule "Subagent orchestration (always apply)" lives in your **Cursor Settings → Rules → User Rules** (Cursor stores user rules in your account, not on disk). This skill is the runbook the rule points to.
+- The current 5 user-defined subagents — `product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops` at [`~/.cursor/agents/`](~/.cursor/agents/). Each one's frontmatter declares its `produces` and `consumes`. Each one's body contains a "Checkpoint output contract" paragraph referencing §1 of this skill.
+- Cursor hook documentation — [`~/.cursor/skills-cursor/create-hook/SKILL.md`](~/.cursor/skills-cursor/create-hook/SKILL.md) for the hook event taxonomy and matcher conventions.

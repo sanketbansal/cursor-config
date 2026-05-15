@@ -1,17 +1,28 @@
 #!/bin/sh
-# bootstrap.sh — Idempotently link this canonical cursor-config repo into the
-# current macOS user's ~/.cursor/ directory.
+# bootstrap.sh — Copy this canonical cursor-config repo into the current
+# macOS user's ~/.cursor/ directory.
 #
-# Run once per user account (each user runs it themselves). Safe to re-run.
-# Never touches Cursor-managed locations (~/.cursor/skills-cursor/) or per-machine
-# state directories (~/.cursor/projects/, ~/.cursor/plans/, ~/.cursor/extensions/,
-# ~/.cursor/plugins/cache/).
+# Run once per user account (each user runs it themselves). Safe to re-run:
+# every step is an idempotent overwrite, never a delete-then-write.
 #
-# Contract per plan section 7.4.
+# Why copy and not symlink? Cursor reads agents, skills, rules, hooks, and
+# standards directly from real files under ~/.cursor/ — that is the working
+# layout users already have. Earlier versions of this script symlinked from
+# /Users/Shared/cursor-config/ into ~/.cursor/, but that broke the moment a
+# user already had real files at ~/.cursor/{agents,skills,hooks}/ (the
+# default state on most installs). Copy-everything mirrors what is already
+# working. The trade-off — local edits under ~/.cursor/ no longer propagate
+# back to canonical automatically — is intentional: edit in
+# /Users/Shared/cursor-config/ and re-run this script (or rely on the
+# auto-run-on-login LaunchAgent at launchagents/install-autorun.sh) to push
+# the change out.
+#
+# Never touches Cursor-managed locations (~/.cursor/skills-cursor/) or
+# per-machine state directories (~/.cursor/projects/, ~/.cursor/plans/,
+# ~/.cursor/extensions/, ~/.cursor/plugins/cache/).
 
 set -eu
 
-# 1. Locate canonical source.
 CANONICAL_DIR="/Users/Shared/cursor-config"
 
 if [ ! -d "${CANONICAL_DIR}" ]; then
@@ -22,89 +33,78 @@ fi
 
 if [ ! -d "${CANONICAL_DIR}/.git" ]; then
     echo "error: ${CANONICAL_DIR} is not a git working tree." >&2
-    echo "       refusing to symlink an unversioned dir; run 'git init' inside ${CANONICAL_DIR} first." >&2
+    echo "       refusing to sync from an unversioned dir; run 'git init' inside ${CANONICAL_DIR} first." >&2
     exit 1
 fi
 
-# 2. Ensure the user's ~/.cursor/ directory exists.
 TARGET_HOME="${HOME}/.cursor"
 mkdir -p "${TARGET_HOME}"
 
-# Helper: link a single subdirectory from canonical → target.
-# Usage: link_dir <subdir-name>
-link_dir() {
-    name="$1"
-    src="${CANONICAL_DIR}/${name}"
-    dst="${TARGET_HOME}/${name}"
+# Helper: copy a directory subtree from canonical → target. Idempotent
+# overwrite of every file in the subtree; files present at the destination
+# but not in canonical are left in place (no stale-file deletion).
+# Usage: sync_tree <repo-relpath> <target-relpath>
+sync_tree() {
+    src="${CANONICAL_DIR}/$1"
+    dst="${TARGET_HOME}/$2"
 
     if [ ! -d "${src}" ]; then
-        echo "skip   ${name}: source ${src} missing in canonical repo."
+        echo "skip   $1: missing in canonical."
         return 0
     fi
 
-    if [ -L "${dst}" ]; then
-        existing=$(readlink "${dst}")
-        if [ "${existing}" = "${src}" ]; then
-            echo "ok     ${name}: symlink already points to canonical."
-            return 0
-        fi
-        echo "error  ${name}: ${dst} is a symlink to ${existing} (expected ${src})." >&2
-        echo "       remove it manually if you want to repoint to canonical." >&2
-        return 1
-    fi
-
-    if [ -e "${dst}" ]; then
-        echo "error  ${name}: ${dst} exists as a real path, not a symlink." >&2
-        echo "       back up its contents and remove ${dst} before re-running bootstrap." >&2
-        echo "       this script will not silently merge or overwrite real files." >&2
-        return 1
-    fi
-
-    ln -s "${src}" "${dst}"
-    echo "linked ${name}: ${dst} -> ${src}"
+    mkdir -p "${dst}"
+    # cp -R "${src}/." "${dst}/" copies the *contents* of src into dst,
+    # giving merge-overwrite semantics regardless of whether dst already
+    # exists. Avoids the BSD-cp quirk where `cp -R src dst/` nests src/src
+    # inside an existing dst.
+    cp -R -f "${src}/." "${dst}/"
+    echo "synced $1/ -> ${dst}/"
 }
 
-# Helper: copy (not symlink) a standards file from canonical/standards → target.
-# Copy semantics so the user can edit ~/.cursor/<name>.md without the canonical
-# source diverging silently. Re-running bootstrap refreshes the copy.
-# Usage: copy_standard <filename>
-copy_standard() {
-    name="$1"
-    src="${CANONICAL_DIR}/standards/${name}"
-    dst="${TARGET_HOME}/${name}"
+# Helper: copy a single file from canonical → target.
+# Usage: sync_file <repo-relpath> <target-relpath>
+sync_file() {
+    src="${CANONICAL_DIR}/$1"
+    dst="${TARGET_HOME}/$2"
 
     if [ ! -f "${src}" ]; then
-        echo "skip   standard ${name}: source ${src} missing."
+        echo "skip   $1: missing in canonical."
         return 0
     fi
 
-    if [ -L "${dst}" ]; then
-        echo "error  standard ${name}: ${dst} is a symlink, expected a regular file." >&2
-        echo "       remove the symlink and re-run bootstrap." >&2
-        return 1
-    fi
-
+    mkdir -p "$(dirname "${dst}")"
     cp -f "${src}" "${dst}"
-    echo "copied standard ${name}: ${src} -> ${dst}"
+    echo "synced $1 -> ${dst}"
 }
 
-# 3. Symlink portable directories. Order is independent.
-link_dir "agents"
-link_dir "skills"
-link_dir "rules"
-link_dir "hooks"
+# 1. Copy the four canonical subtrees.
+sync_tree "agents"    "agents"
+sync_tree "skills"    "skills"
+sync_tree "rules"     "rules"
+sync_tree "hooks"     "hooks"
 
-# 4. Copy standalone standards docs (copy, not symlink — see helper comment).
-copy_standard "engineering-standards.md"
-copy_standard "scalable-backend-design.md"
+# 2. Copy the standalone standards docs into ~/.cursor/ at the top level
+#    (this is where the engineering-standards skill and the User Rules
+#    paste-source point at).
+sync_file "standards/engineering-standards.md"   "engineering-standards.md"
+sync_file "standards/scalable-backend-design.md" "scalable-backend-design.md"
 
-# 5. Refresh +x on every script under hooks/.
+# 3. Copy the top-level dotfiles. hooks.json is the Cursor hook registration
+#    consumed by the subagentStop relay.
+sync_file "hooks.json"     "hooks.json"
+
+# 4. Refresh +x on every script under hooks/ and on the claude-code runner.
 if [ -d "${TARGET_HOME}/hooks" ]; then
-    find "${TARGET_HOME}/hooks/" -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
-    echo "chmod  hooks/*.sh refreshed (+x)."
+    find "${TARGET_HOME}/hooks/" -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} \; 2>/dev/null || true
+    echo "chmod  hooks/* (+x) refreshed."
+fi
+if [ -f "${TARGET_HOME}/agents/claude-code.runner.sh" ]; then
+    chmod +x "${TARGET_HOME}/agents/claude-code.runner.sh" 2>/dev/null || true
+    echo "chmod  agents/claude-code.runner.sh (+x) refreshed."
 fi
 
-# 6. Optionally offer to install the system LaunchAgent that auto-runs
+# 5. Optionally offer to install the system LaunchAgent that auto-runs
 #    bootstrap.sh at every user login on this Mac (covers all current
 #    and future macOS users via /Library/LaunchAgents/).
 #
@@ -143,5 +143,5 @@ else
 fi
 
 echo
-echo "bootstrap complete. ~/.cursor/ now points at ${CANONICAL_DIR}."
-echo "to update later: cd ${CANONICAL_DIR} && git pull"
+echo "bootstrap complete. ~/.cursor/ now mirrors ${CANONICAL_DIR}."
+echo "to update later: cd ${CANONICAL_DIR} && git pull && bash bootstrap.sh"
