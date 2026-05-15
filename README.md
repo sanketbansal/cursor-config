@@ -121,6 +121,27 @@ The runner reads these to customise a call without editing the script. Set them 
 - `CLAUDE_CODE_RUNNER_PERM` — `--permission-mode`: `plan|acceptEdits|bypassPermissions|auto|default|dontAsk` (default: `acceptEdits`).
 - `CLAUDE_CODE_RUNNER_TIMEOUT` — wall-clock seconds per call (default: `600`).
 - `CLAUDE_CODE_RUNNER_CWD` — cwd Claude Code runs in (default: caller's `$PWD`).
+- `CLAUDE_CODE_RUNNER_ADD_DIRS` — colon-separated absolute paths granted to Claude as `--add-dir` (default: auto-detect from a sibling `*.code-workspace` file's `folders` array, falling back to cwd-only).
+
+### Multi-root workspace support
+
+Cursor multi-root workspaces (where a single window has more than one root folder) are first-class. Each `--add-dir` Claude receives is a separate sandbox-allowed root.
+
+The runner resolves the `--add-dir` set in this precedence order:
+
+1. **`CLAUDE_CODE_RUNNER_ADD_DIRS` env var, when set.** Colon-separated absolute paths. Always wins. Use this when you want explicit control or when auto-detect cannot find your workspace file.
+
+   ```sh
+   export CLAUDE_CODE_RUNNER_ADD_DIRS="/Users/me/repo-a:/Users/me/repo-b"
+   ```
+
+2. **Auto-detect from `*.code-workspace` files.** The runner scans `$HOME/*.code-workspace` and `$(dirname "$PWD")/*.code-workspace`. If any of those files has a `folders` array containing the basename of the current working directory, the runner uses every folder in that array. This covers the common case where you opened the workspace from a saved `.code-workspace` file.
+
+3. **Fallback: cwd-only.** Same behavior as before this support existed.
+
+The resolved set always includes the current working directory (deduplicated). Non-existent paths are silently dropped — Claude only ever receives `--add-dir` for directories that exist.
+
+Limitations: ad-hoc multi-root workspaces (folders added via "Add Folder to Workspace…" without saving a `.code-workspace` file) cannot be auto-detected because Cursor stores their state in `~/Library/Application Support/Cursor/User/workspaceStorage/<id>/state.vscdb` rather than a parseable JSON file. For those, set `CLAUDE_CODE_RUNNER_ADD_DIRS` explicitly.
 
 ### Running the runner directly (debugging only)
 

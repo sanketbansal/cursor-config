@@ -18,6 +18,9 @@
 #   CLAUDE_CODE_RUNNER_PERM     override --permission-mode (default: acceptEdits)
 #   CLAUDE_CODE_RUNNER_TIMEOUT  wall-clock seconds before the call is killed (default: 600)
 #   CLAUDE_CODE_RUNNER_CWD      cwd for `run` (default: $PWD)
+#   CLAUDE_CODE_RUNNER_ADD_DIRS colon-separated absolute paths granted to claude as --add-dir
+#                               (default: auto-detect from a sibling *.code-workspace file's
+#                               `folders` array, falling back to cwd-only).
 
 set -eu
 
@@ -293,6 +296,82 @@ _bounded_run() {
     return "$_rc"
 }
 
+# Resolve the list of directories to grant claude via --add-dir.
+# Precedence:
+#   1. CLAUDE_CODE_RUNNER_ADD_DIRS env var (colon-separated absolute paths).
+#   2. Auto-detect from sibling *.code-workspace file whose `folders` array
+#      contains the basename of the work dir.
+#   3. Fallback: the work dir alone.
+# The work dir is always included in the resolved set (deduplicated, last).
+# Output: one absolute path per line on stdout. Diagnostics on stderr.
+_resolve_add_dirs() {
+    _work_dir="$1"
+    /usr/bin/env python3 - "$_work_dir" <<'PYEOF'
+import json, os, sys
+from pathlib import Path
+
+work_dir = Path(sys.argv[1]).resolve()
+seen = []
+
+def add(path):
+    p = Path(path).expanduser()
+    try:
+        p = p.resolve(strict=False)
+    except OSError:
+        return
+    if not p.exists() or not p.is_dir():
+        return
+    s = str(p)
+    if s not in seen:
+        seen.append(s)
+
+env_dirs = os.environ.get("CLAUDE_CODE_RUNNER_ADD_DIRS", "").strip()
+if env_dirs:
+    for raw in env_dirs.split(":"):
+        if raw:
+            add(raw)
+else:
+    candidates = []
+    home = Path(os.environ.get("HOME", "")).expanduser()
+    if home.exists():
+        candidates.extend(sorted(home.glob("*.code-workspace")))
+    parent = work_dir.parent
+    if parent.exists() and parent != home:
+        candidates.extend(sorted(parent.glob("*.code-workspace")))
+    work_basename = work_dir.name
+    for ws_path in candidates:
+        try:
+            data = json.loads(ws_path.read_text())
+        except (OSError, ValueError):
+            continue
+        folders = data.get("folders") or []
+        if not isinstance(folders, list):
+            continue
+        ws_base = ws_path.parent
+        resolved = []
+        matched = False
+        for entry in folders:
+            if not isinstance(entry, dict):
+                continue
+            raw = entry.get("path")
+            if not isinstance(raw, str) or not raw:
+                continue
+            folder_path = (ws_base / raw).resolve(strict=False) if not os.path.isabs(raw) else Path(raw).resolve(strict=False)
+            resolved.append(str(folder_path))
+            if folder_path.name == work_basename or str(folder_path) == str(work_dir):
+                matched = True
+        if matched:
+            for p in resolved:
+                add(p)
+            break
+
+add(work_dir)
+
+for s in seen:
+    print(s)
+PYEOF
+}
+
 # Snapshot tracked + untracked files under the given dir. Used so we can
 # diff before / after a `run` and compute `files_modified` even when the
 # user is not on a clean git working tree to start with.
@@ -524,6 +603,20 @@ _sub_run() {
 
     _prompt_body=$(cat "$_prompt_file")
 
+    _addirs_file="$_tmpdir/add_dirs"
+    _resolve_add_dirs "$_work_dir" >"$_addirs_file" 2>/dev/null || true
+
+    set --
+    while IFS= read -r _d; do
+        if [ -n "$_d" ]; then
+            set -- "$@" --add-dir "$_d"
+        fi
+    done <"$_addirs_file"
+
+    if [ "$#" -eq 0 ]; then
+        set -- --add-dir "$_work_dir"
+    fi
+
     set +e
     cd "$_work_dir" || { _log "run: cd to '$_work_dir' failed"; return 2; }
     if [ -n "$_model" ]; then
@@ -535,7 +628,7 @@ _sub_run() {
             --model "$_model" \
             --effort "$_effort" \
             --permission-mode "$_perm" \
-            --add-dir "$_work_dir"
+            "$@"
     else
         _bounded_run "$_timeout" "$_out" "$_err" \
             claude -p "$_prompt_body" \
@@ -544,7 +637,7 @@ _sub_run() {
             --no-session-persistence \
             --effort "$_effort" \
             --permission-mode "$_perm" \
-            --add-dir "$_work_dir"
+            "$@"
     fi
     _rc=$?
     set -e
