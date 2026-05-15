@@ -53,6 +53,15 @@ sync_tree() {
         return 0
     fi
 
+    # Migrate legacy layout: earlier bootstrap versions symlinked dst -> src.
+    # Under that layout, `cp -R src/. dst/.` aliases to itself and BSD cp
+    # fails with "identical (not copied)", aborting the script under set -e.
+    # Drop the symlink so the cp below can populate a real directory.
+    if [ -L "${dst}" ]; then
+        echo "migrate $2: removing legacy symlink ($(readlink "${dst}"))."
+        rm "${dst}"
+    fi
+
     mkdir -p "${dst}"
     # cp -R "${src}/." "${dst}/" copies the *contents* of src into dst,
     # giving merge-overwrite semantics regardless of whether dst already
@@ -71,6 +80,13 @@ sync_file() {
     if [ ! -f "${src}" ]; then
         echo "skip   $1: missing in canonical."
         return 0
+    fi
+
+    # Same legacy-layout migration as sync_tree: a stale symlink at dst
+    # pointing into canonical makes cp fail with "identical (not copied)".
+    if [ -L "${dst}" ]; then
+        echo "migrate $2: removing legacy symlink ($(readlink "${dst}"))."
+        rm "${dst}"
     fi
 
     mkdir -p "$(dirname "${dst}")"

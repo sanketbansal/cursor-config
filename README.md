@@ -74,6 +74,10 @@ Earlier versions of `bootstrap.sh` symlinked `agents/`, `skills/`, `rules/`, and
 
 Note that `bootstrap.sh` overwrites destination files but does NOT delete files that exist in `~/.cursor/` but not in the canonical repo. If you remove a file from canonical, also delete the stale copy from `~/.cursor/` by hand on each user account.
 
+#### Migrating from the symlink-era layout
+
+Accounts bootstrapped before the copy-everything switch had `~/.cursor/{agents,skills,rules,hooks}` as symlinks into `/Users/Shared/cursor-config/`. On those accounts, `cp` aliases dst to src and BSD `cp` aborts with `identical (not copied)`. `bootstrap.sh` now detects and removes those legacy symlinks at the start of each `sync_tree` / `sync_file` call (printing a `migrate` line), so a single re-run of `bootstrap.sh` is sufficient — no manual `rm` needed. The check is a no-op for accounts that were never symlinked.
+
 ## Pipeline subagents
 
 The five pipeline subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops`) compose end-to-end under the `subagent-orchestration` skill's dependency-graph procedure. Each agent declares `produces` / `consumes` against the artefact vocabulary in `skills/subagent-orchestration/SKILL.md` §3, and the parent Cursor agent builds a per-task graph from those declarations rather than from a fixed pipeline diagram. Different tasks produce different graphs; the user's task and what the user has already provided determine which agents fire.
