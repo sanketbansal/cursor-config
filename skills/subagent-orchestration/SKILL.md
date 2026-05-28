@@ -102,6 +102,8 @@ The shared type system that `produces`/`consumes` declarations align against. Th
 | `deploy-artefact` | Dockerfile / workflow / IaC / package-manager scripts | `dev-ops` | (terminal — consumed by humans / CI) |
 | `review-report` | Audit findings (code review, security audit, performance audit, accessibility audit, etc.) | future review agents | (terminal, OR feeds back upstream as input for a revision) |
 | `bug-diagnosis` | Root-cause analysis with reproduction + fix sketch | parent itself, or a future debugger agent | `software-engineer`, `staff-engineer` |
+| `test-plan` | Layered, requirement-traceable test strategy (levels, gates, tooling, environments) incl. test-data (golden + prod-like), manual-vs-automated split, and test-infrastructure / environment setup | `qa-engineer` | `qa-engineer` (self, execution phase), humans |
+| `qa-report` | Test execution results + structured defect / bug log (each defect routed to a responsible subagent) + ship verdict mapped to AC IDs | `qa-engineer` | feeds back to `software-engineer` / `staff-engineer` / `dev-ops` (routed fix loop); terminal for humans |
 
 Rules for this vocabulary:
 
@@ -149,6 +151,7 @@ Step-by-step:
    - "Write the PRD / requirements for X" → `prd`.
    - "Audit / review X" → `review-report` (one or more).
    - "Diagnose / fix this bug" → `code-diff` (preceded by `bug-diagnosis` if root-cause is non-obvious).
+   - "Test / QA / verify X" → `test-plan` + `qa-report` (`qa-engineer` consuming the existing `code-diff` plus the `prd` / `lld-plan` for traceability).
    - Ambiguous → ask the user via `AskQuestion`.
 3. **Identify already-provided artefacts.** Walk the chat context, attached files, repo `.cursor/plans/`, the repo source. If the user attached a PRD, `prd` is satisfied. If a plan exists, `lld-plan` is satisfied. If the task references existing code, `code-diff` is satisfied for the audit-style cases.
 4. **Build the graph backwards.** For each terminal artefact:
@@ -167,6 +170,7 @@ Step-by-step:
    - If there is one → issue one `Task` call.
    - Wait for completions. Mark the produced artefacts satisfied. If any returned a `cursor-checkpoint` block → trigger the §6 Relay protocol for that node and continue dispatching siblings already in flight.
 8. **Plan revision during execution.** If a subagent's output reveals the graph is wrong (architecture turns out unsuitable; PRD is missing a requirement; the plan needs a redesign) → revise the graph: add nodes upstream, mark affected downstream artefacts unsatisfied, re-execute the affected subtree. Tell the user via `AskQuestion` before doing this when the revision changes the user-visible scope.
+   - **Routed-fix loop from a `qa-report`.** When `qa-engineer` returns a `qa-report` whose defect log carries `route` fields, each open defect names the producer + artefact responsible for the fix (e.g. `software-engineer` → `code-diff`, `staff-engineer` → `lld-plan`, `dev-ops` → `deploy-artefact`). The parent (re)dispatches that producer for the routed defect, then resumes the **same** `qa-engineer` (via `resume`) to re-verify once the fix lands. This is a parent-managed revision loop driven by the defect's `route` field — not a producer/consumer cycle in the graph (so it does not trip the cyclic-graph rejection in step 5). The loop continues until the verdict's blocking defects are `fixed-verified` or the user accepts the open defects.
 
 ### Worked examples (illustrative outputs of the procedure, not templates)
 
@@ -179,6 +183,7 @@ These show what the procedure produces for various task shapes. **Do not** memor
 - **"Here is a PRD; build the system"** → terminal: `code-diff` (+ `deploy-artefact` if runtime change). The user-attached PRD satisfies the `prd` leaf, so `product-manager` is skipped. Graph starts at `principal-engineer`.
 - **"Refactor the payment registry; here's the plan"** → terminal: `code-diff`. User-provided plan satisfies `lld-plan`. Graph is one node: `software-engineer`.
 - **"Write a PRD for the new export feature"** → terminal: `prd`. Single-node graph: `product-manager`.
+- **"Verify the new checkout flow"** → terminal: `test-plan` + `qa-report`. The flow is already implemented, so `code-diff` is satisfied by the repo and the `prd` / `lld-plan` provide traceability. Single-node graph: `qa-engineer`. If its `qa-report` routes a code defect back to `software-engineer`, the parent dispatches `software-engineer` for the fix and then resumes `qa-engineer` to re-verify (step 8 routed-fix loop).
 
 In each case the parent did not consult a fixed workflow. It built the graph from the artefact dependencies for the actual task, given what the user actually provided. Different tasks produce different graphs. Same task with different prior context produces a different graph.
 
@@ -254,5 +259,5 @@ A concise checklist for adding a new subagent later. The orchestration layer nee
 
 - The hook contract — `~/.cursor/hooks.json` and `~/.cursor/hooks/relay-subagent-checkpoint.sh`. The hook fires on `subagentStop`, scans for the §1 marker, injects a `followup_message` instructing the parent to call `AskQuestion`. `failClosed: false` so a hook bug never wedges the agent.
 - The User Rules — the parent-side hard rule "Subagent orchestration (always apply)" lives in your **Cursor Settings → Rules → User Rules** (Cursor stores user rules in your account, not on disk). This skill is the runbook the rule points to.
-- The current 5 user-defined subagents — `product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops` at [`~/.cursor/agents/`](~/.cursor/agents/). Each one's frontmatter declares its `produces` and `consumes`. Each one's body contains a "Checkpoint output contract" paragraph referencing §1 of this skill.
+- The current 6 user-defined subagents — `product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops`, `qa-engineer` at [`~/.cursor/agents/`](~/.cursor/agents/). Each one's frontmatter declares its `produces` and `consumes`. Each one's body contains a "Checkpoint output contract" paragraph referencing §1 of this skill.
 - Cursor hook documentation — [`~/.cursor/skills-cursor/create-hook/SKILL.md`](~/.cursor/skills-cursor/create-hook/SKILL.md) for the hook event taxonomy and matcher conventions.
