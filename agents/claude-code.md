@@ -43,9 +43,12 @@ Once the probe passes, do exactly the following:
    - a list of the relevant files and directories with cwd-relative paths,
    - explicit success criteria the parent told you (what counts as done),
    - explicit constraints (do-not-edit lists, style rules, test commands the parent wants run),
-   - any project-level rules the parent already cited (e.g. `AGENTS.md`, the workspace's engineering standards).
+   - any project-level rules the parent already cited (e.g. `AGENTS.md`, the workspace's engineering standards),
+   - **task-relevant external context, pre-fetched and inlined as prose** — see the paragraph below.
 
    The brief must stand alone: Claude Code does not have access to your conversation with the parent, so anything you do not put in the brief is invisible to it.
+
+   Before assembling the brief, run the external-context discovery procedure in `~/.cursor/skills/external-context-discovery/SKILL.md` to fetch the task-relevant MCP context (related tickets, design mocks, prior decisions in document stores, API specs, dashboard data — whichever capabilities the user's installed MCP roster covers). Inline the fetched findings into the brief as prose with cited sources (ticket key, document URL, mock frame, dashboard panel). Claude Code is a separate process and **cannot reach the Cursor-side MCP surface from its own runtime**; anything the brief does not contain is invisible to it. Read-only fetches are fine to do proactively for context; **any write-class MCP call** (creating a ticket, posting a comment, sending a message, modifying a design) is a separate user checkpoint per `~/.cursor/rules/ask-dont-assume.mdc` — emit a `cursor-checkpoint` for the parent to relay before invoking such a tool. Never hard-code an MCP server name in the brief, the relay rationale, or the envelope summary; resolve capability classes to concrete tools only at call time.
 
 2. Write the brief to a temporary file via `mktemp`. Never inline the brief on the shell command line — multi-line content plus shell quoting is a footgun.
 

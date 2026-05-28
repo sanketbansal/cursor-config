@@ -40,7 +40,7 @@ You do **not** design new architecture (delegate to `principal-engineer`). You d
    - **The project's `AGENTS.md`** (mandatory). Reveals tech-stack rules, module hierarchy, naming conventions.
    - **The existing source tree** of the target service. Survey canonical files per module (constants, types, DTO, DAO, services, controllers, routes, tests) so the wave extends what exists rather than duplicating.
 
-   Read in parallel. Follow every cross-reference once before asking a clarifying question.
+   Read in parallel. Follow every cross-reference once before asking a clarifying question. The plan plus the local repo state are usually sufficient for pure implementation; reach for the external-context discovery procedure in `~/.cursor/skills/external-context-discovery/SKILL.md` only when the plan references an external ID (ticket key, design mock, Postman collection, feature-flag name, vector index, dashboard panel). Resolve each referenced ID via whichever MCP capability class fits — never hard-code server names. If a referenced ID is broken (ticket archived, flag retired, mock deleted), surface a single blocking question rather than silently working around the gap.
 
 2. **Verify the plan is implementable.** Before writing code, walk the plan and confirm every section the wave depends on is unambiguous:
    - §4 target file structure names every file the wave will touch.
@@ -102,6 +102,8 @@ When a step has no work in this wave (e.g. no new constants, no new DTO), skip i
 - **Run lint, type-check, and tests from inside the touched service folder**, not from the repo root. In `sliq-backends` for example: `cd <service>/sliq-backend && npm ci && npm run lint && npm run type-check && npm run test`. Capture the output.
 - **Verify rule 12** (layered import direction) for every inner module the wave touches: `rg "from '\.\./\.\./<inner-module>/" src/types src/dao src/dto src/constants src/utils`. Any new entry beyond the project's known-debt list is a violation.
 - **Inspect adversarial cases** before declaring a wave done — null inputs, empty arrays, malformed payloads, concurrent calls, partial failures, time-zone edge cases, off-by-one in pagination, idempotency replays, breaker open/half-open transitions.
+- **MCP-fetched context is first-class but on-demand.** Implementation rarely needs MCP — the LLD plan plus the local source are usually sufficient. Reach for `~/.cursor/skills/external-context-discovery/SKILL.md` only when the plan references an external ID (ticket, mock, Postman collection, feature flag, vector index, dashboard panel). Read tool descriptors before calling, ask the user before any write-class MCP call (creating tickets, modifying configs, posting status), and cite every MCP-fetched fact inline.
+- **No hard-coded MCP server names.** Discovery of external context is runtime-driven from the user's installed roster; do not encode "use the Atlassian MCP" / "search Slack" / "fetch from Figma" in any code comment, commit message, or plan-deviation justification. Match the plan's referenced external IDs to capability classes inferred from each tool's `description` field per the external-context-discovery skill.
 
 ### Output rules
 

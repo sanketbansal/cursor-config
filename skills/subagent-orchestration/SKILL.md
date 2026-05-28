@@ -78,6 +78,16 @@ The first step of every non-trivial delegation. Builds the capability index from
    - agent → {artefact-types it consumes}
 4. **Cache the index for this delegation only.** The next user task triggers a fresh discovery pass — the roster may have changed.
 
+## §2.5 External-context MCP discovery
+
+The parent agent's first pass on every non-trivial task also runs the external-context discovery procedure in `~/.cursor/skills/external-context-discovery/SKILL.md`. This is a sibling discovery to §2 — §2 enumerates the **subagent** roster, §2.5 enumerates the **MCP** roster — and the result feeds the same "what is already available?" question that §4 asks.
+
+- **Both rosters are runtime inputs.** Just as §2 forbids hard-coded subagent names, §2.5 forbids hard-coded MCP server names. The parent matches the task's information needs to capability classes inferred from each MCP tool's `description` field at runtime, never from a closed list of servers.
+- **MCP-fetchable context is the third "already-provided" input** alongside (a) attached files and (b) repo source. The parent considers it during §4 step 3 — see the updated bullet list in §3 below. A `prd` may be partially satisfied by an existing ticket / document; an `architecture-doc` by a Confluence-style ADR; a `bug-diagnosis` by an existing observability dashboard. When the artefact is **fully** satisfied by an MCP read, the corresponding subagent is skipped exactly the same way as if the user had attached the file.
+- **Discovery is hierarchical, not pipelined.** The parent does its MCP discovery for parent-level orchestration questions (what's already-provided, which subagents to dispatch). Each dispatched subagent **also** runs the same skill, scoped to its own information needs. The parent does not pre-fetch and pipe; subagents fetch what they need themselves. The one exception is `claude-code` (see its agent file §2.3), which must pre-fetch and bake findings into the prose brief because Claude Code itself does not see Cursor MCPs.
+- **No new artefact types.** MCP-fetched data flows into the existing artefact vocabulary in §3 (a fetched ticket becomes part of the `prd`'s sources; a fetched dashboard becomes part of the `architecture-doc`'s drivers); it is not its own artefact type.
+- **Write-class MCP calls go through the relay.** Creating a ticket, posting a comment, modifying a design, mutating a dashboard, deploying — every write requires `AskQuestion` (parent) or a fresh `cursor-checkpoint` (subagent) per `~/.cursor/rules/ask-dont-assume.mdc`. The marker contract in §1 covers this trivially; the parent treats write-class MCP requests from subagents exactly like any other checkpoint.
+
 ## §3 Artefact vocabulary
 
 The shared type system that `produces`/`consumes` declarations align against. This is the canonical list; subagent frontmatter may only reference IDs in this table.
@@ -97,7 +107,7 @@ Rules for this vocabulary:
 
 - The vocabulary is a working set, not a closed taxonomy. New artefact types may be added — but only via a deliberate edit to this table when a new subagent is onboarded that needs them. See §8 Onboarding.
 - The parent must NOT invent new artefact-type IDs at runtime. If the user's terminal artefact does not fit any existing type, the parent surfaces the gap via `AskQuestion` rather than guessing.
-- An "artefact already provided" check (used in the dependency walk) recognises any of: a file uploaded in chat, a path the user mentions in their prompt, a `*.plan.md` file under `.cursor/plans/` or a sibling location for the relevant artefact type, the existing repo source for `code-diff`, a prior subagent's terminal output during the same task.
+- An "artefact already provided" check (used in the dependency walk) recognises any of: a file uploaded in chat, a path the user mentions in their prompt, a `*.plan.md` file under `.cursor/plans/` or a sibling location for the relevant artefact type, the existing repo source for `code-diff`, a prior subagent's terminal output during the same task, **or a read-only MCP fetch that returns the artefact content** (e.g., an existing ticket / document / page that already contains the PRD; an existing observability dashboard that already encodes the SLA target; an existing API spec that already describes the contract). MCP discovery is run per §2.5 as part of the parent's first pass on the task.
 
 ## §4 Dependency-graph procedure
 

@@ -27,7 +27,8 @@ Before producing any architecture doc, low-level design plan, distributed-system
 3. Detect the AI stack: which framework (LangGraph, LangChain, LlamaIndex, OpenAI Agents SDK, Pydantic-AI, AutoGen, custom), which LLM clients (OpenAI, Azure OpenAI, Anthropic, Bedrock, Groq, local), which vector store if any (pgvector, Pinecone, Weaviate, Chroma, OpenSearch hybrid), which observability stack (OpenTelemetry, Langfuse, Phoenix, Helicone).
 4. Detect the persistence stack: checkpointer (Postgres, SQLite, in-memory), session store, app DB, message bus, cache layer.
 5. Detect the eval stack: golden grids, critique-agent harness, replay mocks, A/B harness, drift probes, dashboards.
-6. Skip discovery only for trivial micro-tasks (a one-paragraph clarification, a typo, a single-bullet question). For everything else, discovery is non-optional, and your deliverable must show evidence that it ran (cite the project's actual symbols and paths, not the framework names from your knowledge catalog in section 3).
+6. Run the external-context discovery procedure in `~/.cursor/skills/external-context-discovery/SKILL.md` to surface task-relevant MCP-fetchable context (existing vector indexes and their dimensions / ingest pipelines, prior AI-system epics or ADRs in document stores, current observability for the AI stack, related tickets, design mocks if the design touches UI) from whichever MCP servers are enabled on the runtime machine. Never hard-code server names; capability classes (vector / semantic search, document storage, time-series metrics, log search, issue tracking) are inferred from each tool's own description at runtime.
+7. Skip discovery only for trivial micro-tasks (a one-paragraph clarification, a typo, a single-bullet question). For everything else, discovery is non-optional, and your deliverable must show evidence that it ran (cite the project's actual symbols and paths, not the framework names from your knowledge catalog in section 3).
 
 ## 2.3 Core knowledge areas (the expertise surface)
 
@@ -108,6 +109,7 @@ You follow the orchestration skill conventions and the universal clarification p
 - For every ambiguous parameter — not only irreversible ones — emit a fenced `cursor-checkpoint` block per the schema in `~/.cursor/skills/subagent-orchestration/SKILL.md`. The parent agent's relay rule will surface the question to the user via `AskQuestion` and resume you with the answer via `Task(resume=<id>)`.
 - You never silently pick a default value, never pre-answer your own clarifying question in the same response, and never proceed past an ambiguity hoping discovery will resolve it. The only allowed alternative to a checkpoint is a "small-and-stated" assumption that the user can reverse at zero cost — credentials, irreversible operations, scope of work, public API shape, and destinations of writes never qualify and always require a checkpoint.
 - The rule applies across every mode the parent operates in (plan, agent, ask, debug). You behave the same way regardless of how you are invoked.
+- **MCP-fetched context is first-class.** Whenever the design or eval plausibly benefits from external context that lives outside the repo (existing vector indexes, prior AI epics / ADRs, observability stack state, related tickets, design mocks), follow `~/.cursor/skills/external-context-discovery/SKILL.md`. Read tool descriptors before calling, ask the user (via `cursor-checkpoint`) before any write-class MCP call (creating an index, modifying observability config, posting findings to an external doc store), and degrade gracefully (state the gap in the deliverable's open-questions section) when no MCP fits. Cite every MCP-fetched fact inline.
 
 The canonical ask-don't-assume boilerplate (identical wording lives in `~/.cursor/skills/subagent-orchestration/SKILL.md`):
 
@@ -157,6 +159,7 @@ A short entry per framework family. Each entry is 4–8 bullets describing canon
 - Premature abstraction — an interface speculatively introduced for a single implementation "in case we want to swap it out later". YAGNI violation. Inline the concrete; introduce the interface when the second implementation actually arrives.
 - Long parameter list (>3 args) not grouped into a typed parameter object. Clean-code parameter-count violation. Group cohesive parameters into a DTO per rule 3; boolean flag parameters that change behaviour are usually a sign the function should be two functions.
 - Train-wreck call chains (`a.b.c.d.do_thing()`). Law of Demeter violation. Either return the sub-object's behaviour through a method on `a`, or pass `c` directly to the caller — do not couple the caller to the entire object graph.
+- Hard-coded MCP server names in any deliverable, plan section, or rationale ("use the Atlassian MCP", "search Slack", "fetch from Figma", "query Grafana"). Discovery of external context is runtime-driven from the user's installed roster; match the task's information needs to capability classes inferred from each tool's `description` field per `~/.cursor/skills/external-context-discovery/SKILL.md`, and resolve to concrete tools only at call time.
 
 ## 3.3 Vocabulary contract
 
