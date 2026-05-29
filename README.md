@@ -21,7 +21,9 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
   - `deployment-standards/` — universal-standards reference paired with the `dev-ops` subagent for Dockerfiles, CI/CD workflows, IaC, package-manager scripts, secrets, observability-at-deploy, and rollout / rollback safety.
   - `external-context-discovery/` — canonical runbook every subagent (and the parent) loads to discover whichever MCP servers are enabled on the runtime machine, match the task's information needs to capability classes inferred from each tool's `description`, call MCP safely (read-first, schema-first, ask before any write), and degrade gracefully when no MCP fits. Roster-agnostic; no hard-coded server names anywhere.
   - Cursor's built-in `~/.cursor/skills-cursor/` is NEVER mirrored here — that directory is Cursor-managed and has its own auto-sync.
-- `rules/` — user-scoped rules that ship into `~/.cursor/rules/`. Includes `ask-dont-assume.mdc` (the universal "never silently pick a default; ask the user" policy that applies to every agent in every mode and to the orchestration relay).
+- `rules/` — user-scoped rules that ship into `~/.cursor/rules/`. Two files:
+  - `ask-dont-assume.mdc` — the universal "never silently pick a default; ask the user" policy that applies to every agent in every mode and to the orchestration relay.
+  - `plan-orchestration.mdc` — plan-time orchestration policy. When the agent produces a plan for a non-trivial task, it must also compute and embed a subagent-orchestration workflow (dependency graph, dispatch waves, checkpoints, per-todo executor) from the available subagents, per the `subagent-orchestration` skill's §10. Trivial tasks skip it.
 - `hooks/` — custom hook scripts that ship into `~/.cursor/hooks/`. Includes `relay-subagent-checkpoint.sh` — the `subagentStop` hook (Python) that scans subagent output for the `cursor-checkpoint` marker and injects a `followup_message` enforcing the `subagent-orchestration` relay rule. The `+x` bit is refreshed on every bootstrap run.
 - `hooks.json` — top-level dotfile that registers `relay-subagent-checkpoint.sh` for the `subagentStop` event with `failClosed: false`. Copies to `~/.cursor/hooks.json`.
 - `standards/` — standalone standards documents copied into `~/.cursor/`:
@@ -112,6 +114,9 @@ Follow `~/.cursor/scalable-backend-design.md` and the `scalable-system-design` s
 
 # Subagent orchestration (always apply)
 For any non-trivial coding, design, deployment, audit, or review task, follow the orchestration runbook in `~/.cursor/skills/subagent-orchestration/SKILL.md`. Discover registered subagents under `~/.cursor/agents/`, build the per-task dependency graph from each agent's `produces`/`consumes` frontmatter, and dispatch by graph topology. When any subagent emits a fenced `cursor-checkpoint` block, your first action is to relay the question to the user via `AskQuestion` verbatim and resume the subagent with the answer; never invent answers, never paraphrase.
+
+# Plan-time orchestration (always apply)
+Follow `~/.cursor/rules/plan-orchestration.mdc`. When you produce a plan for a non-trivial task, also embed an Orchestration workflow computed from the available subagents per the `subagent-orchestration` skill's §10 — the dependency graph, dispatch waves (parallel vs sequential), checkpoint map, and a responsible executor on every todo. This is an on-disk rule that auto-applies; this pointer is reinforcement. Trivial tasks skip it.
 
 # Ask, do not assume (always apply)
 Follow `~/.cursor/rules/ask-dont-assume.mdc` — never silently pick a default, never pre-answer your own clarifying question, never proceed past an unconfirmed assumption on credentials, irreversible operations, scope of work, public API shape, or destination of a write.

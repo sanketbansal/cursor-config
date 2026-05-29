@@ -187,6 +187,8 @@ These show what the procedure produces for various task shapes. **Do not** memor
 
 In each case the parent did not consult a fixed workflow. It built the graph from the artefact dependencies for the actual task, given what the user actually provided. Different tasks produce different graphs. Same task with different prior context produces a different graph.
 
+This procedure runs at execution time when dispatching. When the parent is instead **producing a plan** (plan mode, or any `CreatePlan` deliverable), it runs the same discovery + procedure at plan time and renders the result into the plan — see §10 Plan-time orchestration deliverable.
+
 ## §5 Concurrency from the graph
 
 Concurrency is not a separate ruleset. It is a property of the graph the procedure produces.
@@ -254,6 +256,30 @@ A concise checklist for adding a new subagent later. The orchestration layer nee
 - **"The hook is broken / off, so I don't need to relay."** Wrong. The hook is defence in depth. The User Rules and this skill require the parent to relay regardless of hook state. The hook just makes ignoring the requirement harder.
 - **"I'll start a fresh `staff-engineer` instead of resuming."** Never. Resume preserves the draft and the prior checkpoint history. A fresh start discards everything and forces the user to re-answer prior checkpoints.
 - **"I'll invent a new artefact type because the existing vocabulary doesn't quite fit."** No — ask the user via `AskQuestion`. If a new type really is needed, it gets added to §3 explicitly, not on the fly.
+
+## §10 Plan-time orchestration deliverable
+
+§4 is an execution-time procedure: it builds the graph at the moment the parent is about to dispatch. But the parent often produces a **plan** first (plan mode, or any `CreatePlan` deliverable). A plan that lists action items without saying which subagent executes each one, in what order, and where the human is asked, is incomplete — it has decided *what* but not *how* the work gets orchestrated. The `~/.cursor/rules/plan-orchestration.mdc` rule requires the parent to close that gap; this section defines the deliverable.
+
+When producing a plan for a non-trivial task, run the same discovery (§2 + §2.5) and dependency-graph procedure (§4) **at plan time**, and render the result as a dedicated **Orchestration workflow** section inside the plan. The section is the planned dispatch, surfaced for user approval up front rather than improvised during execution.
+
+### Required contents (full depth)
+
+1. **Terminal artefact(s).** What the task ultimately requires (`code-diff`, `deploy-artefact`, `test-plan` + `qa-report`, `review-report`, etc.), per §4 step 2.
+2. **Already-satisfied artefacts.** What the walk treats as leaves because the user provided them — uploads, repo source, paths the user named, prior outputs, or read-only MCP fetches (per §3's already-provided check). State each one and why it is satisfied, so the reader sees which producers are skipped.
+3. **Dependency graph.** A mermaid `flowchart` whose nodes are the subagents the graph needs and whose edges are the artefact dependencies between them. This is the §4 graph, drawn.
+4. **Dispatch waves.** A list (bullets, not a table) of the topologically-sorted waves. For each wave: the ready node(s), the subagent per node, that subagent's `produces` / `consumes`, and whether the wave runs **parallel** or **sequential** with the one-line rationale (parallel when no `consumes` overlap on a non-satisfied artefact; sequential where an edge exists) — per §5.
+5. **Checkpoint map.** Where each subagent's `cursor-checkpoint` relay is expected (which checkpoints that agent's HITL protocol defines), with the reminder that the parent relays each one verbatim via `AskQuestion` and resumes via `Task(resume=…)` — per §1 and §6.
+6. **MCP capability classes.** The external-context capability classes the work will touch (e.g. issue tracker, design source, observability metrics), named as **classes, never as server names**, per §2.5.
+7. **Per-todo executor annotation.** Each plan todo names its responsible executor — a subagent id discovered from `~/.cursor/agents/`, or `parent/direct` when the parent handles it without a subagent.
+
+### Proportionality
+
+Trivial tasks (typo, doc tweak, comment, single-line lint fix, single-token rename) have no orchestration to plan — skip the section entirely, per §4 step 1. Apply the full deliverable only to non-trivial tasks.
+
+### The plan-time graph is provisional
+
+The Orchestration workflow is the *planned* dispatch. Execution may revise it under §4 step 8 — a subagent's output can reveal a missing upstream artefact, or a `qa-engineer` `qa-report` can route a defect back to a producer for a fix-and-re-verify loop. Say so in the plan. The provisional graph earns the user's approval of the orchestration shape up front; it does not freeze the graph against necessary revision. The roster is still discovered at runtime (§2) and the anti-patterns in §9 — above all, never pattern-match a fixed PM → Principal → Staff → SWE → DevOps pipeline — apply to planning exactly as they apply to dispatch.
 
 ## References
 

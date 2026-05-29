@@ -1,0 +1,33 @@
+---
+description: Plan-time subagent-orchestration policy. When producing any plan for a non-trivial task, the agent must also compute and embed a subagent-orchestration workflow (dependency graph, dispatch waves, checkpoints, per-todo executor) using the available subagents, not just list action items.
+globs: "**"
+alwaysApply: true
+---
+
+# Plan with orchestration
+
+When you construct a plan — in plan mode, or via any `CreatePlan` call, or any deliverable a user would recognise as "the plan" — for a non-trivial task, you must not stop at a list of action items. You must also plan **how those action items get executed by the available subagents**: which subagent produces which artefact, what runs in parallel versus in sequence, and where human-in-the-loop relays are expected. A plan that lists what to do but not who executes it and in what order is incomplete.
+
+## Scope
+
+- Applies to the main Cursor agent whenever it is producing a plan (plan mode is the common case; it also applies to any agent-mode `CreatePlan` deliverable).
+- Applies on top of, not instead of, `~/.cursor/rules/ask-dont-assume.mdc` and the `subagent-orchestration` skill. The skill is the single source of truth for the procedure; this rule only requires that you run it at plan time and surface the result inside the plan.
+
+## What to do at plan time
+
+1. **Run discovery and the dependency-graph procedure while planning, not later.** Follow the `subagent-orchestration` skill at `~/.cursor/skills/subagent-orchestration/SKILL.md`: subagent discovery (§2), external-context MCP discovery (§2.5), and the dependency-graph procedure (§4). Do this as part of building the plan — do not defer the orchestration design to execution time.
+2. **Embed an Orchestration workflow section in the plan.** Render the computed graph into the plan per the skill's §10 (Plan-time orchestration deliverable): terminal artefact(s), already-satisfied artefacts, the dependency graph as a mermaid `flowchart`, the dispatch waves (parallel vs sequential, with rationale), the checkpoint map (where each subagent's `cursor-checkpoint` relay is expected), and the MCP capability classes the work will touch.
+3. **Annotate every todo with its responsible executor.** Each plan todo names who runs it — a subagent id discovered from `~/.cursor/agents/` (for example `staff-engineer`, `software-engineer`, `qa-engineer`) or `parent/direct` when the parent handles it without a subagent.
+4. **Stay roster-agnostic.** Discover the subagent roster from `~/.cursor/agents/` at plan time; never hard-code subagent names as a fixed pipeline. Different tasks, and the same task with different already-provided artefacts, produce different graphs. The skill's anti-pattern list (§9) applies to planning too: do not consult a memorised PM → Principal → Staff → SWE → DevOps template — derive the graph from the actual artefact dependencies.
+
+## Ambiguity and the ask-don't-assume rule
+
+If the terminal artefact maps to no registered producer, the graph would be cyclic, or multiple producers tie for an artefact the graph needs, do not guess the orchestration. Surface the fork to the user via `AskQuestion` (per `~/.cursor/rules/ask-dont-assume.mdc` and skill §4 step 5) before finalising the plan.
+
+## Proportionality
+
+Trivial tasks skip the orchestration section entirely — a typo, a doc tweak, a comment, a single-line lint fix, or a single-token rename has no orchestration to plan (skill §4 step 1). Apply the full Orchestration workflow section only to non-trivial tasks.
+
+## The plan-time graph is provisional
+
+State in the plan that the orchestration graph is the planned dispatch, and that execution may revise it (skill §4 step 8) — for example when a subagent's output reveals a missing upstream artefact, or when a `qa-engineer` `qa-report` routes a defect back to a producer for a fix-and-re-verify loop. The provisional graph gets the user to approve the orchestration shape up front; it does not freeze it against necessary revision.
