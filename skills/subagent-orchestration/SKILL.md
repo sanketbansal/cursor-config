@@ -281,6 +281,47 @@ Trivial tasks (typo, doc tweak, comment, single-line lint fix, single-token rena
 
 The Orchestration workflow is the *planned* dispatch. Execution may revise it under §4 step 8 — a subagent's output can reveal a missing upstream artefact, or a `qa-engineer` `qa-report` can route a defect back to a producer for a fix-and-re-verify loop. Say so in the plan. The provisional graph earns the user's approval of the orchestration shape up front; it does not freeze the graph against necessary revision. The roster is still discovered at runtime (§2) and the anti-patterns in §9 — above all, never pattern-match a fixed PM → Principal → Staff → SWE → DevOps pipeline — apply to planning exactly as they apply to dispatch.
 
+## §11 Artefact authoring & persistence lifecycle
+
+Document-producing subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `ai-engineer`, `dev-ops` in its Phase-1 plan, `qa-engineer` for its test-plan and qa-report) used to emit their whole artefact as chat output and re-render the growing document at every checkpoint. That is the dominant cause of subagent resource-exhaustion (output/context-limit) during plan / document generation, and the source of long runtimes. This section is the canonical contract that replaces it. Code-producing agents (`software-engineer`, `claude-code`) already write to files and are out of scope here.
+
+### Authoring protocol (every document-producing subagent)
+
+1. **Persist to a file; do not emit the document in chat.** The subagent writes its artefact to a target file via file-edit tools. The file is the single source of truth for the artefact's content.
+2. **Author incrementally.** Build the document one section (or one wave) at a time with successive edits. Never generate the entire document in a single response.
+3. **Never re-emit prior sections.** On each turn — including every checkpoint return and every resume — the chat output is only a short delta summary of what was just written, the file path, and (at a checkpoint) the `cursor-checkpoint` marker. The subagent never re-prints the accreting document in chat; on resume it edits the file in place, it does not reproduce earlier sections.
+4. **Bounded per-turn output.** Each turn writes one bounded segment and returns a short summary. This keeps both the subagent's output size and the parent's context small.
+
+### Completeness contract (no partial handoff)
+
+Incremental authoring is a *delivery* mechanism, not a content reduction. Completeness and detail are never traded away to save output.
+
+1. **Status marker.** The artefact file carries an explicit status header — `status: in-progress` while it is being authored, flipped to `status: complete` only when it is finished.
+2. **Definition of done.** A producer may declare its `produces` artefact done — and the parent may mark that artefact *satisfied* (see §6) — **only** when (a) every required section of the agent's standard outline is written in the file, and (b) the agent's own quality-bar / self-check has passed against the full file. Both conditions are necessary.
+3. **A checkpoint pause is not a completion.** A `cursor-checkpoint` return is a request for input mid-authoring; it never marks the artefact satisfied and never signals the artefact is ready to consume.
+4. **No consumption of incomplete artefacts.** A downstream subagent must never read an `in-progress` artefact and fill the gaps by inference — that is exactly how incomplete input becomes hallucinated output. If an artefact a consumer needs is missing required sections or is not marked `complete`, the consumer raises a single blocking question (per `~/.cursor/rules/ask-dont-assume.mdc` and its own missing-input rule) rather than guessing. The parent does not dispatch a consumer node until its upstream artefact is `complete`.
+
+### Proportional depth, bounded below by the quality bar
+
+Outline depth right-sizes to task scope — a small feature gets a shorter document than a new platform. But "proportional depth" governs *scope only*; it is never licence to drop a mandatory section, skip the traceability / checklist, or thin out required detail. The agent's mandatory outline and quality-bar floor hold regardless of task size.
+
+### Transient vs deliverable + the per-task temp working dir
+
+1. **The parent designates a per-task ephemeral working directory** in the system temp area, outside the repo (e.g. under `$TMPDIR/cursor-agent-work/<task-id>/`).
+2. **Intermediate artefacts** — those consumed only by downstream subagents and not requested by the user as an end-goal — are written into that temp working dir. They are the task's shared working / long-term memory across resumes and across subagents.
+3. **The terminal / deliverable artefact** — what the user actually asked to keep (e.g. "write the PRD", "produce the plan") — is written into the repo at the intended path, never into the temp dir.
+4. **The parent passes each subagent, at invocation, its target file path and a transient-vs-deliverable flag**, so the subagent writes to the right place without guessing.
+
+### Cleanup (only after successful completion)
+
+When the terminal artefact is produced and orchestration completes successfully, the parent **deletes the per-task temp working dir automatically, without a confirmation prompt**. This is a standing, pre-authorized policy, strictly scoped to that ephemeral temp working dir — it never deletes repo files and never deletes a deliverable. Cleanup fires only on successful completion: never mid-task, and never while any artefact is still `in-progress` or a consumer still needs to read it. This is the one carve-out to the destructive-delete clause of `~/.cursor/rules/ask-dont-assume.mdc`, and it is bounded by being temp-only and pre-authorized; any deletion outside the task's own temp working dir is still a checkpoint.
+
+### Cross-references
+
+- §4 already distinguishes the **terminal artefact** (deliverable) from **intermediate** producer outputs (transient) — that distinction drives the repo-vs-temp placement above.
+- §6: an artefact is marked *satisfied* only on a complete terminal return, never at a checkpoint pause.
+- §10: the plan-time Orchestration workflow marks each artefact node as deliverable or transient so the placement and cleanup are visible up front.
+
 ## References
 
 - The hook contract — `~/.cursor/hooks.json` and `~/.cursor/hooks/relay-subagent-checkpoint.sh`. The hook fires on `subagentStop`, scans for the §1 marker, injects a `followup_message` instructing the parent to call `AskQuestion`. `failClosed: false` so a hook bug never wedges the agent.
