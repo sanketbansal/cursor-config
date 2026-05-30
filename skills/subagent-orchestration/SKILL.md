@@ -104,6 +104,8 @@ The shared type system that `produces`/`consumes` declarations align against. Th
 | `bug-diagnosis` | Root-cause analysis with reproduction + fix sketch | parent itself, or a future debugger agent | `software-engineer`, `staff-engineer` |
 | `test-plan` | Layered, requirement-traceable test strategy (levels, gates, tooling, environments) incl. test-data (golden + prod-like), manual-vs-automated split, and test-infrastructure / environment setup | `qa-engineer` | `qa-engineer` (self, execution phase), humans |
 | `qa-report` | Test execution results + structured defect / bug log (each defect routed to a responsible subagent) + ship verdict mapped to AC IDs | `qa-engineer` | feeds back to `software-engineer` / `staff-engineer` / `dev-ops` (routed fix loop); terminal for humans |
+| `ux-research` | UX research findings: problem framing, personas, JTBD alignment, competitive / heuristic analysis, user flows, information architecture, accessibility requirements | `ux-designer` | `ux-designer` (self, design phase), `staff-engineer`, humans |
+| `ux-design-spec` | UI/UX design spec: design system / tokens, component + screen specs, responsive + accessibility annotations, and references to the design files (e.g. Figma frames) created via MCP | `ux-designer` | `staff-engineer` / `software-engineer` (frontend), humans |
 
 Rules for this vocabulary:
 
@@ -152,6 +154,7 @@ Step-by-step:
    - "Audit / review X" → `review-report` (one or more).
    - "Diagnose / fix this bug" → `code-diff` (preceded by `bug-diagnosis` if root-cause is non-obvious).
    - "Test / QA / verify X" → `test-plan` + `qa-report` (`qa-engineer` consuming the existing `code-diff` plus the `prd` / `lld-plan` for traceability).
+   - "Design the UI/UX for X" → `ux-research` + `ux-design-spec` (`ux-designer` consuming the `prd`). Note: `ux-design-spec` is a **conditional** input to implementation — when a task has a UI / frontend surface, the parent adds `ux-designer` as a parallel producer (alongside `principal-engineer`) and feeds its spec into the UI `lld-plan` / frontend `code-diff`. It is not a hard dependency for non-UI code work, so it does not appear in `staff-engineer` / `software-engineer` `consumes` frontmatter; the parent adds the edge when the task surface is a UI.
    - Ambiguous → ask the user via `AskQuestion`.
 3. **Identify already-provided artefacts.** Walk the chat context, attached files, repo `.cursor/plans/`, the repo source. If the user attached a PRD, `prd` is satisfied. If a plan exists, `lld-plan` is satisfied. If the task references existing code, `code-diff` is satisfied for the audit-style cases.
 4. **Build the graph backwards.** For each terminal artefact:
@@ -184,6 +187,7 @@ These show what the procedure produces for various task shapes. **Do not** memor
 - **"Refactor the payment registry; here's the plan"** → terminal: `code-diff`. User-provided plan satisfies `lld-plan`. Graph is one node: `software-engineer`.
 - **"Write a PRD for the new export feature"** → terminal: `prd`. Single-node graph: `product-manager`.
 - **"Verify the new checkout flow"** → terminal: `test-plan` + `qa-report`. The flow is already implemented, so `code-diff` is satisfied by the repo and the `prd` / `lld-plan` provide traceability. Single-node graph: `qa-engineer`. If its `qa-report` routes a code defect back to `software-engineer`, the parent dispatches `software-engineer` for the fix and then resumes `qa-engineer` to re-verify (step 8 routed-fix loop).
+- **"Design the onboarding screens"** → terminal: `ux-research` + `ux-design-spec`. Needs `prd` — if the user attached one it is satisfied; otherwise `product-manager` runs first. Single design node: `ux-designer` (which also creates the Figma files via MCP, each write relay-gated). If the ask were "design and build the onboarding screens", the graph extends: `ux-designer` (design) → `staff-engineer` (UI LLD consuming the spec) → `software-engineer` (frontend `code-diff`).
 
 In each case the parent did not consult a fixed workflow. It built the graph from the artefact dependencies for the actual task, given what the user actually provided. Different tasks produce different graphs. Same task with different prior context produces a different graph.
 
@@ -326,5 +330,5 @@ When the terminal artefact is produced and orchestration completes successfully,
 
 - The hook contract — `~/.cursor/hooks.json` and `~/.cursor/hooks/relay-subagent-checkpoint.sh`. The hook fires on `subagentStop`, scans for the §1 marker, injects a `followup_message` instructing the parent to call `AskQuestion`. `failClosed: false` so a hook bug never wedges the agent.
 - The User Rules — the parent-side hard rule "Subagent orchestration (always apply)" lives in your **Cursor Settings → Rules → User Rules** (Cursor stores user rules in your account, not on disk). This skill is the runbook the rule points to.
-- The current 6 user-defined subagents — `product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops`, `qa-engineer` at [`~/.cursor/agents/`](~/.cursor/agents/). Each one's frontmatter declares its `produces` and `consumes`. Each one's body contains a "Checkpoint output contract" paragraph referencing §1 of this skill.
+- The current 7 user-defined subagents — `product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops`, `qa-engineer`, `ux-designer` at [`~/.cursor/agents/`](~/.cursor/agents/). Each one's frontmatter declares its `produces` and `consumes`. Each one's body contains a "Checkpoint output contract" paragraph referencing §1 of this skill.
 - Cursor hook documentation — [`~/.cursor/skills-cursor/create-hook/SKILL.md`](~/.cursor/skills-cursor/create-hook/SKILL.md) for the hook event taxonomy and matcher conventions.

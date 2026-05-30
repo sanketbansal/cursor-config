@@ -4,17 +4,19 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 
 ## Layout
 
-- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Seven files in two complementary groups:
-  - **Pipeline subagents** that compose under `subagent-orchestration` (artefact dataflow `business-prompt → prd → architecture-doc → lld-plan → code-diff → deploy-artefact`):
+- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Nine agent files (plus the `claude-code` runner) in two complementary groups:
+  - **Pipeline subagents** that compose under `subagent-orchestration` (artefact dataflow `business-prompt → prd → architecture-doc → lld-plan → code-diff → deploy-artefact`, with verification on top):
     - `product-manager.md` — produces `prd` from a `business-prompt`.
     - `principal-engineer.md` — produces `architecture-doc` (and ADRs) from a `prd`.
     - `staff-engineer.md` — produces `lld-plan` (module decomposition, schema, sequenced waves) from `prd` + `architecture-doc`. Produces no code.
     - `software-engineer.md` — produces `code-diff` (production code + tests) from an `lld-plan`.
     - `dev-ops.md` — produces `deploy-artefact` (Dockerfiles, CI/CD workflows, IaC, package-manager scripts) from `lld-plan` + `code-diff`.
-  - **Specialist subagents** outside the pipeline:
+    - `qa-engineer.md` — produces `test-plan` + `qa-report` (layered test strategy, then executed verification with a routed defect log) from `prd` + `architecture-doc` + `lld-plan` + `code-diff`. Delegates unit-test authoring to `software-engineer` and routes each defect back to the responsible subagent.
+  - **Specialist subagents** outside (or parallel to) the pipeline:
+    - `ux-designer.md` — design-first UI/UX research + design specialist. Produces `ux-research` + `ux-design-spec` from a `prd`, and creates the actual design files (e.g. Figma) via MCP with every write relay-gated. Never writes frontend code (delegates to `software-engineer`); runs in parallel with `principal-engineer` after the PRD.
     - `ai-engineer.md` — design-first AI / multi-agent / LLM-system specialist. Produces `architecture-doc`, `lld-plan`, `distributed-design`, `eval-design`. Never writes code in deliverables unless agent mode explicitly asks.
     - `claude-code.md` + `claude-code.runner.sh` — thin relay that delegates implementation work to the locally installed Claude Code CLI (Anthropic) as a Cursor subagent, with an active-probe gate.
-- `skills/` — custom user skills that ship into `~/.cursor/skills/`. Four skills:
+- `skills/` — custom user skills that ship into `~/.cursor/skills/`. Five skills:
   - `engineering-standards/` — auto-trigger on any code/design task; enforces the 17 standards (12 universal + 5 SOLID), OOP fundamentals, and the design-patterns catalogue from `standards/engineering-standards.md`.
   - `scalable-system-design/` — walks new backend / async / cache / migration / AI-system designs through the 7-step questionnaire and the 12 system-design primitives in `standards/scalable-backend-design.md`.
   - `subagent-orchestration/` — discovery-driven, dataflow-driven runbook for the parent Cursor agent. Builds the per-task dependency graph from each subagent's `produces`/`consumes` frontmatter and enforces the inviolable `cursor-checkpoint` relay rule (subagent question → `AskQuestion` → resume). Roster-agnostic; do not hard-code subagent names. §10 covers the plan-time orchestration deliverable; §11 is the artefact authoring & persistence lifecycle (see below).
