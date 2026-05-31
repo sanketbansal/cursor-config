@@ -291,17 +291,18 @@ Document-producing subagents (`product-manager`, `principal-engineer`, `staff-en
 
 ### Authoring protocol (every document-producing subagent)
 
+0. **Decompose into a TodoWrite authoring list before writing any section.** The first action of any document-producing run is to build a `TodoWrite` list with **one todo per required section / segment** of the artefact's outline (for `staff-engineer` §6, one todo per module; for a wave-structured plan, one todo per wave-section). This list is the structural enforcement of incremental authoring — it makes "one section at a time" unavoidable instead of relying on the model's restraint. The agent then authors strictly one todo at a time: mark the todo `in_progress` → write **only that section** to the target file via an edit → mark it `completed` → move to the next. It does **not** write more than the current section, and never the whole document, in a single response/turn. This is what prevents the one-shot generation that causes resource-exhaustion / timeout.
 1. **Persist to a file; do not emit the document in chat.** The subagent writes its artefact to a target file via file-edit tools. The file is the single source of truth for the artefact's content.
-2. **Author incrementally.** Build the document one section (or one wave) at a time with successive edits. Never generate the entire document in a single response.
+2. **Author incrementally, one todo at a time.** Build the document one section (or one wave) at a time with successive edits, driven by the §0 todo list. Never generate the entire document in a single response.
 3. **Never re-emit prior sections.** On each turn — including every checkpoint return and every resume — the chat output is only a short delta summary of what was just written, the file path, and (at a checkpoint) the `cursor-checkpoint` marker. The subagent never re-prints the accreting document in chat; on resume it edits the file in place, it does not reproduce earlier sections.
-4. **Bounded per-turn output.** Each turn writes one bounded segment and returns a short summary. This keeps both the subagent's output size and the parent's context small.
+4. **Bounded per-turn output.** Each turn writes one bounded segment (the current todo's section) and returns a short summary. This keeps both the subagent's output size and the parent's context small.
 
 ### Completeness contract (no partial handoff)
 
 Incremental authoring is a *delivery* mechanism, not a content reduction. Completeness and detail are never traded away to save output.
 
 1. **Status marker.** The artefact file carries an explicit status header — `status: in-progress` while it is being authored, flipped to `status: complete` only when it is finished.
-2. **Definition of done.** A producer may declare its `produces` artefact done — and the parent may mark that artefact *satisfied* (see §6) — **only** when (a) every required section of the agent's standard outline is written in the file, and (b) the agent's own quality-bar / self-check has passed against the full file. Both conditions are necessary.
+2. **Definition of done.** A producer may declare its `produces` artefact done — and the parent may mark that artefact *satisfied* (see §6) — **only** when (a) **every authoring todo from §0 is `completed`** (every required section of the agent's standard outline is written in the file), and (b) the agent's own quality-bar / self-check has passed against the full file. Both conditions are necessary; a half-finished todo list can never be marked complete.
 3. **A checkpoint pause is not a completion.** A `cursor-checkpoint` return is a request for input mid-authoring; it never marks the artefact satisfied and never signals the artefact is ready to consume.
 4. **No consumption of incomplete artefacts.** A downstream subagent must never read an `in-progress` artefact and fill the gaps by inference — that is exactly how incomplete input becomes hallucinated output. If an artefact a consumer needs is missing required sections or is not marked `complete`, the consumer raises a single blocking question (per `~/.cursor/rules/ask-dont-assume.mdc` and its own missing-input rule) rather than guessing. The parent does not dispatch a consumer node until its upstream artefact is `complete`.
 
