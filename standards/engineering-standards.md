@@ -73,6 +73,8 @@ Before writing anything new:
 
 Hard-coded literals that mirror an existing constant are a defect.
 
+Reuse is the **default path**, not a special case for constants and types. The same instinct applies to whole files, modules, classes, and functions: before adding any new surface, extend what already exists. See [Minimal footprint and solution-shape-first](#minimal-footprint-and-solution-shape-first).
+
 ### 4. Define types/constants/DTOs/DAOs in their canonical files
 
 - Constants live in the dedicated `*.constants.*` (or equivalent) file for the module.
@@ -399,10 +401,49 @@ The patterns below are tools, not trophies. Each entry names when to reach for i
 
 ---
 
+## Minimal footprint and solution-shape-first
+
+Adding code is the easy reflex; the discipline is adding the **least** code that fully and correctly solves the problem. More files and more lines are a cost — to read, to test, to maintain — not a sign of effort. This section is the counter-pressure to the natural bias toward generating new files and writing more code than the problem needs.
+
+### Solution-shape first
+
+Before writing or planning a single line, **enumerate the candidate approaches** and pick the one that reuses the most existing code and adds the least new surface (files, modules, classes, functions, lines, dependencies) while staying correct, readable, and standards-compliant.
+
+- For any non-trivial task, hold 2-3 candidate shapes in mind (e.g. "extend the existing service" vs. "add a new module" vs. "introduce an abstraction + two strategies") and compare them on: reuse (how much existing code is leveraged), new surface (files / lines added), blast radius (how many modules change), and the tradeoff each one gives up.
+- The **smallest correct diff a reader can follow** wins. A change that touches three existing files is almost always better than one that adds three new files.
+- Do not start coding the first shape that comes to mind. The first idea is usually the most additive one.
+
+### Minimal footprint
+
+Every new file, class, function, and dependency must be **justified against the alternative of extending something that already exists**.
+
+- **Default to zero new files.** Prefer adding a method to an existing class, a branch to an existing function (within the flat-control-flow limit), a case to an existing canonical file. A new file is a deliberate decision that carries a one-line justification ("new module-level concern, no existing owner" — not "it felt cleaner").
+- Prefer **extending an existing function** over adding a near-duplicate one. Prefer **reusing an existing abstraction** over defining a parallel one.
+- A new dependency (library, package) is the highest-cost addition of all — justify it against the standard library and against existing dependencies before reaching for it.
+
+### Not code golf
+
+Minimal footprint means fewer lines through **better design**, never through cleverness or omission.
+
+- Fewer lines come from reuse, composition, and polymorphism — not from cramming logic, dropping tests, collapsing guard clauses into nested ternaries, or weakening types.
+- Never sacrifice flat control flow (standard 1), strict typing (standard 11), SRP (standard 13), tests (standard 8), or readability (standard 2) to shorten a diff. If "smaller" and "clearer" conflict, clearer wins.
+- KISS cuts **both** ways: it forbids over-engineering (speculative abstractions, premature generalisation) **and** under-engineering (copy-paste, inline duplication). The simplest design that fully solves the *current* problem is the target.
+
+### Anti-over-engineering
+
+- No speculative abstractions, interfaces-with-one-implementation, or config knobs for hypothetical future needs (YAGNI). Build for the requirement in front of you.
+- No design pattern without a **named anti-pattern** it removes from the touched code — applying a pattern for symmetry or seniority is itself over-engineering (see the Design patterns catalogue preamble).
+- A new layer, indirection, or generalisation is justified only by a concrete second caller or a requirement that exists today, not by "we might need it later".
+
+---
+
 ## Pre-completion checklist
 
 Run through this list **before** saying "done", committing, or opening a PR. If something fails, fix it; do not narrate around it.
 
+- [ ] Smallest correct solution chosen — candidate approaches were weighed and the leanest correct one (most reuse, least new surface) was taken; not the first / most additive idea.
+- [ ] Every new file, class, and function is justified against extending an existing one; no near-duplicate of existing code introduced.
+- [ ] No speculative abstraction, one-implementation interface, future-proofing config knob, or pattern without a named anti-pattern (YAGNI).
 - [ ] Control flow stays flat — no nested `if`/`else`, no nested `try`/`catch`, guard clauses used.
 - [ ] No new hard-coded values that already exist as constants or enums.
 - [ ] New constants/types/DTOs/DAOs live in their canonical files; nothing inlined.

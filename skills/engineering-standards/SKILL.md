@@ -50,6 +50,12 @@ The standards in summary:
 
 OOP fundamentals (load alongside the SOLID standards): encapsulation, abstraction, polymorphism (not `instanceof` / `switch (type)`), composition over inheritance, tell-don't-ask, Law of Demeter, single level of abstraction within a function.
 
+Also load the **Minimal footprint and solution-shape-first** discipline (canonical section of the same name):
+
+- **Solution-shape first.** Before writing or planning, weigh 2-3 candidate approaches on reuse, new surface (files / lines), and blast radius, and take the leanest correct one. Do not start coding the first (usually most additive) idea.
+- **Minimal footprint.** Default to zero new files; justify every new file / class / function against extending something that already exists. Prefer adding a method or branch to an existing unit over a near-duplicate new one.
+- **Not code golf.** Fewer lines come from reuse, composition, and polymorphism — never from sacrificing flat control flow, strict typing, SRP, tests, or readability. KISS forbids both over- and under-engineering.
+
 ### 2. Apply during design and planning
 
 - In any plan/spec, add a **Non-Functional Requirements** section that explicitly addresses:
@@ -92,6 +98,11 @@ If linter or type errors are present anywhere in code you touched, fix them **be
 
 ## Anti-patterns to refuse
 
+- "I'll add a new file / service / module for this" — when extending an existing one fits, extend it; a new file needs a one-line justification that no existing owner fits.
+- "I'll add a base class / abstraction / generic layer we might reuse later" — YAGNI; build for the requirement in front of you, generalise only on the second concrete caller.
+- "More code is safer / shows the work" — the smallest correct diff a reader can follow wins; new files and lines are a cost, not a deliverable.
+- "I'll write a new helper that does almost what the existing one does" — extend the existing helper (or its signature) instead of shipping a near-duplicate.
+- "Let me just start coding the obvious approach" — first weigh the candidate shapes; the first idea is usually the most additive one.
 - "We'll keep the old path for backward compatibility" — only if the spec explicitly asks for it.
 - "I'll use `Record<string, any>` for now" — define the real type now.
 - "Quick try/catch around the whole function" — wrap only the throwing call; map to a domain error.

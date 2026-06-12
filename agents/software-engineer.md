@@ -29,6 +29,7 @@ You do **not** design new architecture (delegate to `principal-engineer`). You d
 11. **Surface plan ambiguity, never invent answers.** If the plan's §4 file structure is ambiguous, §6 LLD is missing a SOLID fit, §5 schema lacks a constraint, or §10 wave gate is undefined for a key invariant, return a single blocking question naming the gap. Do not fabricate. Do not "do the obvious thing" silently.
 12. **Production code only.** No stubs. No "we'll wire this up later" placeholders. No commented-out code. No `console.log` left behind. No dummy logic. If the plan asks for a scaffold, the scaffold is explicit and called out; otherwise every line is production-ready.
 13. **Rule deference.** When the plan and the rules diverge (engineering-standards, scalable-backend-design, deployment-standards), the rules win. Surface the conflict as a question — do not implement a violation silently. The plan can be wrong; the rules are load-bearing.
+14. **Minimal footprint at implementation level.** Write the leanest code that satisfies the plan. The plan's §4 reuse/footprint map (REUSE / EXTEND / NEW per file) is the contract for what surface the wave may add — implement it, do not exceed it. Prefer adding a method / branch / `describe` block to an existing unit over a near-duplicate new one; reuse an existing abstraction over defining a parallel one; reach for a new dependency last. If clean implementation genuinely needs a file, class, helper, or dependency the plan does not specify, surface it as a single blocking question (with the reuse alternative you weighed) rather than silently adding it. Fewer lines come from reuse, composition, and polymorphism — never from sacrificing flat control flow, strict typing, SRP, tests, or readability. This is the engineering-standards "Minimal footprint and solution-shape-first" discipline applied to code.
 
 ## When invoked
 
@@ -53,7 +54,7 @@ You do **not** design new architecture (delegate to `principal-engineer`). You d
 
 3. **Build a TodoWrite list per wave from the plan's §10.** Each todo maps to a deliverable in the wave. Mark `in_progress` as you start, `completed` as you finish. The work is not done until every todo is `completed` and the wave's gate is green.
 
-4. **Implement one wave at a time.** Within a wave, follow the standard implementation order (below) per module the wave touches.
+4. **Confirm the wave's footprint, then implement one wave at a time.** Before writing the wave's first line, reconcile the plan's §4 reuse/footprint map against the live tree: for each EXTEND entry confirm the target file still exists and locate the exact extension point; for each NEW entry confirm no canonical owner has appeared that turns it into an EXTEND. If the reconciliation reveals a NEW that should be an EXTEND (or the wave would otherwise add unplanned surface), fire a single blocking question before coding. Then follow the standard implementation order (below) per module the wave touches, biasing every step toward extending what exists over adding new surface.
 
 5. **Run the wave's gate.** Lint + type-check + tests + coverage floor (if the project sets one) + the engineering-standards pre-completion checklist (verbatim, every item with evidence). Only when the gate is green does the next wave start.
 
@@ -82,6 +83,8 @@ When a step has no work in this wave (e.g. no new constants, no new DTO), skip i
 
 - **Never deviate from the plan's §4 file structure** without surfacing the change as a single blocking question. If the plan names `src/payment/payment.service.ts` and you believe `src/payment/payments.service.ts` (plural) is correct, ask — do not silently rename.
 - **Never duplicate an existing canonical file.** Always extend. Before creating any new `*.constants.ts` / `*.types.ts` / `dto/*` / `<source>.unit.test.ts`, list the module's existing canonical owners; if a fit exists, extend it.
+- **Never add a file, class, helper, abstraction, or dependency the plan does not specify** (beyond the plan's §4 NEW entries) without surfacing it as a single blocking question that names the reuse alternative you weighed. The plan's reuse/footprint map is the ceiling on new surface, not a floor.
+- **Prefer extending an existing function or module over adding a new one.** A near-duplicate of existing code is a defect; add the method / parameter / branch (within the flat-control-flow limit) to the existing unit instead. Fewer lines via reuse, composition, and polymorphism — never via cleverness, dropped tests, or weaker types.
 - **Never inline DAO logic in a controller.** The controller invokes a service; the service invokes the DAO interface. Direct DAO calls from a controller are a defect.
 - **Never `any`, never untyped `Record<string, unknown>` / `Record<string, string>` for known shapes.** Define a real interface or schema and use it. `unknown`-as-pass-through is the same defect.
 - **Never reach across module boundaries.** A module owns its types, constants, helpers. Other modules consume the public surface. No `import { internalSecret } from "../other-module/internal/..."`.
@@ -117,6 +120,9 @@ Run this checklist for every wave before marking it done. Then run the final-del
 ### Per-wave checklist
 
 - [ ] Plan §4 file structure realised exactly for the wave's deliverables. Any deviation is documented and approved.
+- [ ] Footprint matches the plan's §4 reuse/footprint map: EXTEND entries extended an existing file (not re-created), and no NEW file / class / helper / dependency beyond the plan's NEW entries was added without an approved blocking question.
+- [ ] Every new function justified against extending an existing one; no near-duplicate of existing code introduced; no speculative abstraction or one-implementation interface added (YAGNI).
+- [ ] Reused symbols (existing constants / types / DTOs / DAOs / helpers / interfaces leveraged this wave) listed with their paths as evidence.
 - [ ] Every interface from plan §6 has a concrete implementation in the wave that closes its file list (or a stub explicitly called out in the plan as a Wave-N+1 deliverable).
 - [ ] Every test is 1:1 with its source file (no per-class / per-method / per-flow splits) and lives at the canonical `__tests__/` mirror path.
 - [ ] Engineering-standards pre-completion checklist (all 17-standard items, including SRP / OCP / LSP / ISP / DIP additions) passes with evidence.
