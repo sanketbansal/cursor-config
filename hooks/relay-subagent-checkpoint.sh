@@ -131,6 +131,7 @@ def _build_followup(agent_type_hint: str, agent_id_hint: str, parsed: object) ->
         return None
     agent = parsed.get("agent") or agent_type_hint or "unknown"
     checkpoint = parsed.get("checkpoint") or "?"
+    kind = parsed.get("kind") if isinstance(parsed.get("kind"), str) else "question"
     question = parsed.get("question")
     options = parsed.get("options")
     default = parsed.get("default")
@@ -138,9 +139,15 @@ def _build_followup(agent_type_hint: str, agent_id_hint: str, parsed: object) ->
         return None
     options_block = _format_options(options) or "  (no options provided)"
     default_str = default if isinstance(default, (str, int)) else "(none)"
+    block_description = (
+        "reported an execution blocker (`kind: blocked` — its retry budget "
+        "is exhausted; the options are recovery paths)"
+        if kind == "blocked"
+        else "returned a `cursor-checkpoint` block"
+    )
     return (
         f"STOP. Subagent `{agent}` (id `{agent_id_hint or 'unknown'}`, "
-        f"checkpoint `{checkpoint}`) returned a `cursor-checkpoint` block.\n\n"
+        f"checkpoint `{checkpoint}`) {block_description}.\n\n"
         "You MUST relay this question to the user via the `AskQuestion` tool "
         "BEFORE any other tool call. Do not assume an answer, paraphrase the "
         "question, or take any other action until the user has responded.\n\n"

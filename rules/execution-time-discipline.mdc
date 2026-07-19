@@ -1,0 +1,70 @@
+---
+description: Universal execution-time-discipline policy. Every agent (the main Cursor agent in any mode and every custom subagent) must run commands non-interactively, time-box them, kill hung processes instead of re-waiting, bound retries to a changed-hypothesis budget, and never idle-wait — escalating via AskQuestion (parent) or a `cursor-checkpoint` `kind: blocked` block (subagent) when the budget is exhausted.
+globs: "**"
+alwaysApply: true
+---
+
+# Execution time discipline
+
+Agent time is a budgeted resource. The banned failure mode this rule exists to prevent: a command or tool call fails or hangs, and the agent waits, re-waits, or blindly re-runs the same thing — burning minutes without producing new information. Every wait must be justified by a specific awaited output; every retry must be justified by a changed hypothesis; every hang must be killed and diagnosed, never re-waited.
+
+## Scope (every agent, every mode)
+
+This rule applies to:
+
+- The main Cursor agent in plan mode, agent mode, ask mode, and debug mode.
+- Every custom subagent under `~/.cursor/agents/` — current and future.
+- Every terminal command, every MCP tool call, and every subagent dispatch.
+
+## Non-interactive by construction
+
+Every terminal command must be unable to prompt for input or run forever **before** it is executed — a command that might prompt is rewritten first, not killed after it hangs.
+
+- Set `CI=1` (and the tool's own CI flag where one exists) for installers, test runners, and generators.
+- Pass the tool's non-interactive flag: `--yes` / `--no-input` / `--non-interactive` / `--frozen-lockfile` or equivalent.
+- Set `GIT_TERMINAL_PROMPT=0` so git fails fast instead of prompting for credentials.
+- Defeat pagers: pipe to `| cat`, or set `GIT_PAGER=cat` / `PAGER=cat`.
+- Run test runners and builders in single-run mode — **never watch mode** (`--watch`, `--watchAll`, dev-server-and-wait). If the task needs a dev server, run it as an explicit background job with a readiness check, never as a foreground command.
+- Use non-TTY reporters where an interactive reporter would animate or block.
+
+## Time-box every command by class
+
+Before running a command, place it in an expected-runtime class and size the wait to the class:
+
+- **Quick** (< 30 s: file ops, lint on a few files, git status, single-file tests) — run in foreground with the default wait.
+- **Medium** (30 s – 10 min: full test suites, type-check, builds, `npm ci`) — run in background with a wait sized to the expectation; do independent work meanwhile.
+- **Long** (> 10 min: load runs, large installs, migrations, deploys) — run in background; do exactly **one** smoke check that the job started (pid alive, first lines of output), then continue other work and react to the completion notification.
+
+Polling loops are permitted only for genuinely monitor-worthy jobs — deploys, load/performance runs, data migrations, long training/eval runs — where a mid-run course correction is plausible. Everything else is fire-and-forget: start it, work on something else, read the result when it completes.
+
+## Hang rule — kill, diagnose, change; never re-wait
+
+If a command exceeds ~2x its expected runtime class with **no new output**, treat it as hung:
+
+1. Kill it by pid.
+2. Read the captured output up to the kill.
+3. Form a new hypothesis for the hang (interactive prompt, missing env, network stall, watch mode, wrong directory).
+4. Fix and rerun under the retry budget below, or switch approach.
+
+Re-waiting on the same silent process, or re-running the identical command hoping for a different result, is banned.
+
+## Bounded retry budget
+
+- Maximum **2 retries** per failing command or tool call — and each retry must carry a **changed hypothesis**: a different flag, a fixed environment variable, a corrected path, an alternate tool. An identical retry is not a retry; it is a wasted attempt and is banned.
+- When the budget is exhausted, escalate — do not keep trying:
+  - **Parent agent:** surface the blocker. Continue independent work if any exists; call `AskQuestion` when only the user can unblock (credentials, environment access, a broken external dependency, a scope decision).
+  - **Subagent:** emit a `cursor-checkpoint` block with `kind: blocked` per the schema in `~/.cursor/skills/subagent-orchestration/SKILL.md` §1 — stating what was attempted, the captured error, and 2–3 recovery options. Never spin past the budget hoping the environment heals itself.
+
+## No idle waiting, ever
+
+- Never sleep "to see if it resolves." A wait is legitimate only when a specific awaited output is the direct blocker of the very next action, and its duration is sized to the command's runtime class.
+- While a background job or dispatched subagent runs, do independent work — other todos, other graph nodes, other document sections — or end the turn and react to the completion notification. Vacuously polling a running job or subagent is banned.
+- Do not serialize independent work behind a running job it does not depend on.
+
+## MCP / tool failure ladder
+
+On an erroring MCP tool call: one re-inspection (re-read the tool schema; re-authenticate if the failure is an auth error) → one adapted retry → escalate per the retry budget above. Never loop on an erroring MCP server, and never rotate through unrelated servers hoping one works.
+
+## Relationship to other rules
+
+This rule bounds *time spent*, not *decisions made*. `~/.cursor/rules/ask-dont-assume.mdc` still governs every ambiguous decision — escalating a blocker after the retry budget is exactly the ask-don't-assume mechanism applied to execution failures. The subagent-orchestration skill's dispatch loop (`~/.cursor/skills/subagent-orchestration/SKILL.md` §5, §7) carries the parent-side counterpart: as-soon-as-ready dispatch, no vacuous polling, and the bounded re-dispatch stall policy.

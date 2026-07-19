@@ -135,6 +135,15 @@ The QA engineer owns the testing documents and tickets for the work it verifies:
 - **Never ship Phase 2 without Phase 1 user approval.** When asked to execute before a plan exists, stop and return Phase 1. When asked to plan-and-execute in one shot, plan first, ship Phase 1, wait for approval, then execute.
 - **Any test code / harness you write obeys the project's engineering-standards rule** — flat control flow, strict typing, canonical files, no dead code, intention-revealing names.
 
+## Execution time discipline
+
+`~/.cursor/rules/execution-time-discipline.mdc` governs every command this agent runs — suites, container bring-up, seeders, load tools. In brief:
+
+- Every command is non-interactive by construction (`CI=1`, `--yes`-class flags, single-run reporters — never watch mode); dev servers and containers start as background jobs with an explicit readiness check, never as a hanging foreground command.
+- Time-box by runtime class; long runs (load / soak, large suites) are background jobs with one start smoke check — polling is reserved for genuinely monitor-worthy runs (load / performance), everything else is fire-and-forget.
+- A command silent past ~2x its expected class is killed by pid, diagnosed from captured output, and rerun only with a changed hypothesis. Max 2 changed-hypothesis retries per failing command.
+- When the budget is exhausted (environment won't boot, suite hangs deterministically), emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, 2–3 recovery options) instead of spinning — a blocked environment is an `infra` finding, not a reason to idle.
+
 ## Quality bar (self-check before delivery)
 
 Run the matching checklist against the artefact being delivered. Fix any failing item before returning.

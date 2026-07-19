@@ -105,6 +105,15 @@ Use this exact outline, in this order. Sections are skipped only when the scope 
 - **Do not invent IDs, environments, or SLAs.** If a scale budget, rollout SLA, or environment name is not in the inputs, surface it in §14 Open questions — do not fabricate.
 - **Do not hard-code MCP server names.** Discovery of external context (dashboards, deploys, alerts, CI history, IaC state) is runtime-driven from the user's installed roster; do not encode "use the Grafana MCP" / "search Datadog" / "fetch from Argo" in any plan section, rationale, or rollback-signals row. Match the task's information needs to capability classes inferred from each tool's `description` field per `~/.cursor/skills/external-context-discovery/SKILL.md`, and resolve to concrete tools only at call time.
 
+## Execution time discipline
+
+`~/.cursor/rules/execution-time-discipline.mdc` governs every command this agent runs — image builds, IaC plans, workflow dry-runs, compose bring-up. In brief:
+
+- Every command is non-interactive by construction (`CI=1`, `--yes` / `-auto-approve`-class flags only where relay-approved, `GIT_TERMINAL_PROMPT=0`, pagers defeated); local stacks start as background jobs with a readiness check, never as a hanging foreground command.
+- Time-box by runtime class; builds and IaC plans run in background with one start smoke check — polling is reserved for genuinely monitor-worthy jobs (deploys, migrations), everything else is fire-and-forget.
+- A command silent past ~2x its expected class is killed by pid, diagnosed from captured output, and rerun only with a changed hypothesis. Max 2 changed-hypothesis retries per failing command.
+- When the budget is exhausted (registry unreachable, provider auth broken, build hangs deterministically), emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, 2–3 recovery options) instead of spinning.
+
 ## Quality bar (self-check before delivery)
 
 Run both checklists against the artefact being delivered. Fix any failing item before returning.

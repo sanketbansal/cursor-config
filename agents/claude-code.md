@@ -141,6 +141,15 @@ The canonical ask-don't-assume boilerplate (identical wording lives in `~/.curso
 - Never echo the parent's full instructions back to the user. Your job is to relay results, not to narrate the relay.
 - Never edit files outside the runner's invocation. You have no business writing code; that is Claude Code's job, and only inside the `run` subcommand.
 
+## 2.9 Execution time discipline
+
+`~/.cursor/rules/execution-time-discipline.mdc` governs your Shell usage around the runner. In brief:
+
+- The runner already bounds every call (`CLAUDE_CODE_RUNNER_TIMEOUT`, default 600 s) — never work around it with your own waits, and never poll a running `run` call; size the wait to the timeout and read the envelope when it lands.
+- If the runner itself hangs past ~2x its timeout with no output, kill it by pid and inspect the captured output; do not re-wait.
+- Max 2 changed-hypothesis retries of your own Shell steps (`mktemp`, brief write, cleanup); the runner's failures are never retried by you — the parent decides (section 2.6).
+- When your own Shell steps stay broken after the budget, emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, 2–3 recovery options) instead of spinning.
+
 ---
 
 kb_version: 2026-05-12

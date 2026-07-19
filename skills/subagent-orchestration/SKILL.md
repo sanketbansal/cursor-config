@@ -31,7 +31,7 @@ Schema:
 
 ````
 ```cursor-checkpoint
-kind: question                      # always "question" for now; reserved: "approval", "blocked"
+kind: question                      # "question" or "blocked"; reserved: "approval"
 agent: staff-engineer               # subagent id (matches the agent's filename + frontmatter `name`)
 checkpoint: A                       # checkpoint id from the subagent's HITL protocol — A, B, …
 question: |
@@ -50,7 +50,7 @@ default: brownfield                 # one of the option ids above
 
 Field semantics:
 
-- `kind` (string, enum) — `question` is the only kind today. Future kinds (`approval`, `blocked`) are reserved; treat unknown kinds as `question` defensively.
+- `kind` (string, enum) — `question` (a decision fork mid-authoring) or `blocked` (execution blocker after the retry budget — see below). `approval` is reserved; treat unknown kinds as `question` defensively.
 - `agent` (string) — the subagent's id, matching the filename of `~/.cursor/agents/<id>.md` and its frontmatter `name`. Used in the relay instruction so the parent passes `subagent_type=<agent>` on resume.
 - `checkpoint` (string) — the checkpoint label from the subagent's own HITL protocol (`A`, `B`, …). Echoed in the relay instruction for context.
 - `question` (string, YAML block scalar) — the full question text. The parent passes this **verbatim** as the AskQuestion `prompt`. No paraphrasing.
@@ -62,6 +62,16 @@ Hard rules around the marker:
 - The block appears **only** on a checkpoint return, not on terminal output. Terminal output ends with the deliverable, no marker. This separates "I am pausing for input" from "I am done."
 - One block per return. If a subagent has multiple questions, it emits one block per checkpoint cycle (the parent relays, resumes, the subagent advances and may emit another block at the next checkpoint).
 - The block is plain YAML inside a fenced code block whose info-string is exactly `cursor-checkpoint`. Variants (`checkpoint`, `cursor_checkpoint`) are not recognised.
+
+### `kind: blocked` — execution-blocker escalation
+
+`kind: blocked` is the sanctioned alternative to spinning when a subagent's tooling fails. Per `~/.cursor/rules/execution-time-discipline.mdc`, a subagent that exhausts its retry budget (max 2 changed-hypothesis retries per failing command / tool call) emits a `blocked` block instead of re-trying, re-waiting, or idling. Field usage:
+
+- `question` — states **what was attempted** (the exact commands / tool calls), **the captured error or hang evidence** (output excerpt, exit code, kill-after-timeout), and what the subagent needs to proceed.
+- `options` — 2–3 concrete recovery options, e.g. *retry with change X* (name the change), *switch tool / approach Y*, *skip this step and accept the stated gap*. Each option carries its `tradeoff`.
+- `default` — the recovery the subagent recommends.
+
+The parent relays a `blocked` block exactly like a `question` block — `AskQuestion` verbatim, then `Task(resume=…)` with the user's chosen recovery. The relay hook needs no per-kind logic; the marker's presence is the trigger. A `blocked` return is never a completion: the artefact stays `in-progress` and the subagent's `produces` stays unsatisfied until it resumes and terminates normally.
 
 ## §2 Discovery procedure
 
@@ -166,12 +176,12 @@ Step-by-step:
    - If the terminal artefact maps to no registered producer → ask the user via `AskQuestion` ("I don't have an agent that produces a `<type>`; how do you want to proceed?"). Do not substitute a different agent.
    - If the graph is cyclic (A produces B's input and B produces A's input) → reject, ask the user.
    - If multiple agents declare the same `produces` for an artefact the graph needs → tiebreak by description match against the task; if still ambiguous, ask the user which one.
-6. **Topologically sort the graph.** Sources (no incoming edges) first; terminals last.
-7. **Dispatch loop.** Repeat until the terminal artefact is produced:
-   - Collect every node whose dependencies are all satisfied.
-   - If there are multiple → issue concurrent `Task` calls in a single message (parallel dispatch).
-   - If there is one → issue one `Task` call.
-   - Wait for completions. Mark the produced artefacts satisfied. If any returned a `cursor-checkpoint` block → trigger the §6 Relay protocol for that node and continue dispatching siblings already in flight.
+6. **Topologically sort the graph and identify the critical path.** Sources (no incoming edges) first; terminals last. The critical path is the longest dependency chain from a satisfied leaf to the terminal artefact — it sets the floor on total elapsed time. Every node **off** the critical path must be scheduled at its earliest ready time so it never adds to the total; only critical-path nodes are allowed to be the thing everything else waits on.
+7. **Dispatch loop — as-soon-as-ready, never lockstep.** Repeat until the terminal artefact is produced:
+   - Collect every node whose dependencies are all satisfied and dispatch **all** of them now — multiple ready nodes get concurrent `Task` calls in a single message; a single ready node gets one call.
+   - **Re-compute the ready set after every single completion**, not after a batch. The moment any node completes and its artefact is marked satisfied, any newly-ready node is dispatched immediately — even while other nodes from the previous dispatch are still running. Never hold a ready node back until a whole "wave" closes when only one edge actually gated it.
+   - While dispatched nodes run, the parent does its own independent work (remaining discovery, temp-dir setup, repo survey, plan bookkeeping) or ends the turn and reacts to completion notifications — it never vacuously polls a running subagent (`~/.cursor/rules/execution-time-discipline.mdc`).
+   - On each completion, mark the produced artefacts satisfied. If a return carries a `cursor-checkpoint` block → trigger the §6 Relay protocol for that node; siblings already in flight keep running, and newly-ready nodes that do not depend on the paused node keep dispatching.
 8. **Plan revision during execution.** If a subagent's output reveals the graph is wrong (architecture turns out unsuitable; PRD is missing a requirement; the plan needs a redesign) → revise the graph: add nodes upstream, mark affected downstream artefacts unsatisfied, re-execute the affected subtree. Tell the user via `AskQuestion` before doing this when the revision changes the user-visible scope.
    - **Routed-fix loop from a `qa-report`.** When `qa-engineer` returns a `qa-report` whose defect log carries `route` fields, each open defect names the producer + artefact responsible for the fix (e.g. `software-engineer` → `code-diff`, `staff-engineer` → `lld-plan`, `dev-ops` → `deploy-artefact`). The parent (re)dispatches that producer for the routed defect, then resumes the **same** `qa-engineer` (via `resume`) to re-verify once the fix lands. This is a parent-managed revision loop driven by the defect's `route` field — not a producer/consumer cycle in the graph (so it does not trip the cyclic-graph rejection in step 5). The loop continues until the verdict's blocking defects are `fixed-verified` or the user accepts the open defects.
 
@@ -201,6 +211,10 @@ Concurrency is not a separate ruleset. It is a property of the graph the procedu
 - **Parallel** dispatch happens when the dispatcher loop finds multiple nodes whose dependencies are all satisfied at the same time. Issue concurrent `Task` calls **in a single message** (the parent's `Task` tool supports multiple concurrent invocations per message).
 - **Mid-graph checkpoint** pauses only the node that returned the marker. Sibling nodes already in flight keep running. After the user answers and the paused node resumes-and-completes, the dispatcher loop picks up.
 - **No fixed parallelism table.** Whether two `staff-engineer` invocations can run in parallel depends on whether their `consumes` sets overlap on a non-satisfied artefact in the same graph. If yes, sequential. If no, parallel. Same for any subagent type, current or future.
+- **As-soon-as-ready, never lockstep waves.** "Waves" are a rendering of the topological sort for the plan reader, not a dispatch barrier. The dispatcher re-computes the ready set after every single completion (§4 step 7) and releases each node at its earliest ready time. Holding a ready node until an unrelated sibling finishes is a scheduling defect.
+- **Critical path first.** The longest dependency chain (§4 step 6) is the only thing allowed to bound total elapsed time. Off-critical-path nodes are dispatched at their earliest ready time so they overlap the critical path instead of extending it, and the parent's own work (discovery, temp-dir setup, repo survey) overlaps running subagents rather than preceding or following them serially.
+- **Overlaps are derived from `consumes`, not memorised.** The derivation rule: a node is ready the moment the artefacts it *actually consumes* are satisfied — not when the "previous stage" finishes. This is what surfaces real overlaps, for example: a `test-plan` producer that consumes `prd` + `lld-plan` but **not** `code-diff` runs in parallel with the implementation, not after it; a design-spec producer that consumes only the `prd` runs in parallel with the architecture node; two implementation dispatches covering independent modules of the same plan run in parallel when their `consumes` sets do not overlap on a non-satisfied artefact. Derive these from the frontmatter every time — the examples are illustrations, not a table to pattern-match.
+- **Background dispatch is the default for parallel nodes.** Concurrent `Task` calls run with `run_in_background: true`; the parent continues its own todos and reacts to completion notifications. Vacuously polling a running subagent is banned (`~/.cursor/rules/execution-time-discipline.mdc`). A single ready node that the parent is genuinely blocked on may run in the foreground.
 
 ## §6 Relay protocol — the inviolable rule
 
@@ -233,7 +247,15 @@ When resuming a subagent via `Task(resume=<agent_id>, …)`:
 - Do NOT re-pass the original task description on resume. The subagent already has it from the first call.
 - Do NOT reset the `mode` (e.g. `mode: review-each-section`) on resume. The subagent already knows it from the first call.
 
-If a subagent returns an error or terminates without producing its declared `produces` artefact, surface the failure to the user via a regular response and ask whether to retry, switch agents, or abandon the graph.
+### Stall policy — bounded re-dispatch, never a silent retry loop
+
+If a dispatched subagent errors out, times out, or terminates without producing its declared `produces` artefact:
+
+1. **One re-dispatch, with a narrowed prompt.** The parent gets exactly one retry per node, and it must change something: narrow the scope, fix a bad input path, pass a missing artefact, or correct the instruction that caused the failure. Re-dispatching the identical prompt is banned (same changed-hypothesis contract as `~/.cursor/rules/execution-time-discipline.mdc`).
+2. **A second failure always goes to the user.** Surface the failure via `AskQuestion` — what failed, both attempts' evidence, and the options (retry with a named change, switch to a different producer, abandon this branch of the graph). The parent never silently re-dispatches in a loop and never quietly substitutes a different agent.
+3. **Siblings keep running.** A stalled node pauses only its own branch; independent in-flight nodes continue, and the parent keeps dispatching other ready nodes while the stall question is pending only if they do not depend on the stalled node's artefact.
+
+A subagent that returns a `kind: blocked` checkpoint (§1) is **not** a stall — it paused deliberately. Relay it like any checkpoint and resume with the user's chosen recovery.
 
 ## §8 Onboarding a new subagent
 
@@ -260,6 +282,10 @@ A concise checklist for adding a new subagent later. The orchestration layer nee
 - **"The hook is broken / off, so I don't need to relay."** Wrong. The hook is defence in depth. The User Rules and this skill require the parent to relay regardless of hook state. The hook just makes ignoring the requirement harder.
 - **"I'll start a fresh `staff-engineer` instead of resuming."** Never. Resume preserves the draft and the prior checkpoint history. A fresh start discards everything and forces the user to re-answer prior checkpoints.
 - **"I'll invent a new artefact type because the existing vocabulary doesn't quite fit."** No — ask the user via `AskQuestion`. If a new type really is needed, it gets added to §3 explicitly, not on the fly.
+- **"Wave 1 has three nodes; I'll wait for all three before dispatching anything from Wave 2."** Lockstep waves are a scheduling defect. The moment any node's consumed artefacts are all satisfied, it dispatches — waves are a plan rendering, not a barrier (§4 step 7, §5).
+- **"The subagent is running; I'll poll it every minute until it finishes."** Vacuous polling wastes the parent's turn. Do independent work (other ready nodes, discovery, bookkeeping) or end the turn and react to the completion notification (`~/.cursor/rules/execution-time-discipline.mdc`).
+- **"These two nodes have no edge between them, but the usual order runs A before B, so I'll serialize them."** No — absence of an edge means parallel. Serializing independent nodes because a memorised template implies an order is the same defect as consulting a fixed pipeline.
+- **"The subagent failed; I'll just dispatch it again with the same prompt."** Banned. One re-dispatch with a narrowed / corrected prompt, then the failure goes to the user (§7 stall policy). Identical re-dispatches are a retry loop, not a recovery.
 
 ## §10 Plan-time orchestration deliverable
 
@@ -271,11 +297,12 @@ When producing a plan for a non-trivial task, run the same discovery (§2 + §2.
 
 1. **Terminal artefact(s).** What the task ultimately requires (`code-diff`, `deploy-artefact`, `test-plan` + `qa-report`, `review-report`, etc.), per §4 step 2.
 2. **Already-satisfied artefacts.** What the walk treats as leaves because the user provided them — uploads, repo source, paths the user named, prior outputs, or read-only MCP fetches (per §3's already-provided check). State each one and why it is satisfied, so the reader sees which producers are skipped.
-3. **Dependency graph.** A mermaid `flowchart` whose nodes are the subagents the graph needs and whose edges are the artefact dependencies between them. This is the §4 graph, drawn.
-4. **Dispatch waves.** A list (bullets, not a table) of the topologically-sorted waves. For each wave: the ready node(s), the subagent per node, that subagent's `produces` / `consumes`, and whether the wave runs **parallel** or **sequential** with the one-line rationale (parallel when no `consumes` overlap on a non-satisfied artefact; sequential where an edge exists) — per §5.
+3. **Dependency graph, with the critical path marked.** A mermaid `flowchart` whose nodes are the subagents the graph needs and whose edges are the artefact dependencies between them. This is the §4 graph, drawn. Mark which chain is the **critical path** (§4 step 6) — the longest dependency chain that bounds total elapsed time — in the node labels or the accompanying prose.
+4. **Dispatch waves + width justification.** A list (bullets, not a table) of the topologically-sorted waves — stated explicitly as a *rendering* of the ready-order, not a dispatch barrier (execution is as-soon-as-ready per §4 step 7). For each wave: the ready node(s), the subagent per node, that subagent's `produces` / `consumes`, and whether the wave runs **parallel** or **sequential** with the one-line rationale (parallel when no `consumes` overlap on a non-satisfied artefact; sequential where an edge exists) — per §5. Then justify the width: for every **sequential** edge, name the artefact dependency that forces it; for every pair of nodes left sequential **without** an edge between them, justify why they cannot run in parallel. A straight-line graph where the edges do not force a line is an incomplete plan.
 5. **Checkpoint map.** Where each subagent's `cursor-checkpoint` relay is expected (which checkpoints that agent's HITL protocol defines), with the reminder that the parent relays each one verbatim via `AskQuestion` and resumes via `Task(resume=…)` — per §1 and §6.
 6. **MCP capability classes.** The external-context capability classes the work will touch (e.g. issue tracker, design source, observability metrics), named as **classes, never as server names**, per §2.5.
 7. **Per-todo executor annotation.** Each plan todo names its responsible executor — a subagent id discovered from `~/.cursor/agents/`, or `parent/direct` when the parent handles it without a subagent.
+8. **Per-dispatch time budget + stall policy.** Each dispatched node gets a soft time budget (its expected-runtime class, per `~/.cursor/rules/execution-time-discipline.mdc`), and the plan states the stall policy that governs every node: one re-dispatch with a narrowed prompt on failure, then the failure goes to the user (§7 stall policy); a `kind: blocked` checkpoint is relayed like any question (§1).
 
 ### Proportionality
 

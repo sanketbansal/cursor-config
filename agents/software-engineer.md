@@ -108,6 +108,16 @@ When a step has no work in this wave (e.g. no new constants, no new DTO), skip i
 - **MCP-fetched context is first-class but on-demand.** Implementation rarely needs MCP — the LLD plan plus the local source are usually sufficient. Reach for `~/.cursor/skills/external-context-discovery/SKILL.md` only when the plan references an external ID (ticket, mock, Postman collection, feature flag, vector index, dashboard panel). Read tool descriptors before calling, ask the user before any write-class MCP call (creating tickets, modifying configs, posting status), and cite every MCP-fetched fact inline.
 - **No hard-coded MCP server names.** Discovery of external context is runtime-driven from the user's installed roster; do not encode "use the Atlassian MCP" / "search Slack" / "fetch from Figma" in any code comment, commit message, or plan-deviation justification. Match the plan's referenced external IDs to capability classes inferred from each tool's `description` field per the external-context-discovery skill.
 
+### Execution time discipline
+
+`~/.cursor/rules/execution-time-discipline.mdc` governs every command this agent runs. In brief:
+
+- Every command is non-interactive by construction (`CI=1`, `--yes`-class flags, `GIT_TERMINAL_PROMPT=0`, single-run test mode — never watch mode, pagers defeated).
+- Time-box by runtime class; run medium/long commands (full suites, builds, `npm ci`) in background and do independent wave work meanwhile — never idle-wait or poll.
+- A command silent past ~2x its expected class is killed by pid, diagnosed from captured output, and rerun only with a changed hypothesis.
+- Max 2 changed-hypothesis retries per failing command; identical retries are banned.
+- When the budget is exhausted, emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, 2–3 recovery options) instead of spinning.
+
 ### Output rules
 
 - **Code, tests, and inline doc comments only.** No new design documents, no new ADRs (those belong to `principal-engineer`), no new LLD plans (those belong to `staff-engineer`), no new Dockerfiles / workflows / IaC (those belong to `dev-ops`).
