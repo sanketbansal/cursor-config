@@ -4,7 +4,7 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 
 ## Layout
 
-- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Nine agent files (plus the `claude-code` runner) in two complementary groups:
+- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Ten agent files (plus the `claude-code` runner) in two complementary groups:
   - **Pipeline subagents** that compose under `subagent-orchestration` (artefact dataflow `business-prompt → prd → architecture-doc → lld-plan → code-diff → deploy-artefact`, with verification on top):
     - `product-manager.md` — produces `prd` from a `business-prompt`.
     - `principal-engineer.md` — produces `architecture-doc` (and ADRs) from a `prd`.
@@ -14,6 +14,7 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
     - `qa-engineer.md` — produces `test-plan` + `qa-report` (layered test strategy, then executed verification with a routed defect log) from `prd` + `architecture-doc` + `lld-plan` + `code-diff`. Delegates unit-test authoring to `software-engineer` and routes each defect back to the responsible subagent.
   - **Specialist subagents** outside (or parallel to) the pipeline:
     - `ux-designer.md` — design-first UI/UX research + design specialist. Produces `ux-research` + `ux-design-spec` from a `prd`, and creates the actual design files (e.g. Figma) via MCP with every write relay-gated. Never writes frontend code (delegates to `software-engineer`); runs in parallel with `principal-engineer` after the PRD.
+    - `ai-researcher.md` — AI research specialist. Produces `research-brief` (SOTA survey with dated citations, critically-appraised benchmarks, compared-alternatives recommendation matrix with epistemic-status labels) via live web retrieval on every invocation plus an append-only distilled knowledge base (every KB write relay-gated). Conditional edge: when a task has an AI/ML surface, the parent adds it as an early parallel producer feeding `ai-engineer` / `principal-engineer` / `staff-engineer`. Never designs, plans, or codes.
     - `ai-engineer.md` — design-first AI / multi-agent / LLM-system specialist. Produces `architecture-doc`, `lld-plan`, `distributed-design`, `eval-design`. Never writes code in deliverables unless agent mode explicitly asks.
     - `claude-code.md` + `claude-code.runner.sh` — thin relay that delegates implementation work to the locally installed Claude Code CLI (Anthropic) as a Cursor subagent, with an active-probe gate.
 - `skills/` — custom user skills that ship into `~/.cursor/skills/`. Five skills:
@@ -57,7 +58,7 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 3. Verify:
 
    ```sh
-   ls ~/.cursor/agents/             # 7 files: 5 pipeline + ai-engineer + claude-code (+ runner)
+   ls ~/.cursor/agents/             # 10 files: 6 pipeline + ux-designer + ai-researcher + ai-engineer + claude-code (+ runner)
    ls ~/.cursor/skills/             # 4 skill folders
    ls ~/.cursor/hooks/              # relay-subagent-checkpoint.sh
    cat ~/.cursor/hooks.json         # subagentStop registration
@@ -90,7 +91,7 @@ The five pipeline subagents (`product-manager`, `principal-engineer`, `staff-eng
 
 Every subagent that pauses for input emits a fenced `cursor-checkpoint` block (schema in `skills/subagent-orchestration/SKILL.md` §1). The parent must relay the question to the user via `AskQuestion` verbatim, then resume the same subagent with `Task(resume=<id>, prompt=<answer>)`. This is the inviolable rule of the orchestration model — see `skills/subagent-orchestration/SKILL.md` §6 for the full protocol and `rules/ask-dont-assume.mdc` for the universal ask-don't-assume policy.
 
-The two specialist subagents (`ai-engineer`, `claude-code`) sit alongside the pipeline. `ai-engineer` is design-first and produces markdown architecture / design / plan documents for AI / multi-agent / LLM systems; it switches to writing code only when the parent in agent mode explicitly asks. `claude-code` is a thin relay that delegates implementation work to the locally installed Claude Code CLI (Anthropic) — see [Claude Code subagent](#claude-code-subagent) below.
+The specialist subagents (`ux-designer`, `ai-researcher`, `ai-engineer`, `claude-code`) sit alongside the pipeline. `ai-researcher` is research-first and produces the `research-brief` that conditionally feeds the AI design nodes. `ai-engineer` is design-first and produces markdown architecture / design / plan documents for AI / multi-agent / LLM systems; it switches to writing code only when the parent in agent mode explicitly asks. `claude-code` is a thin relay that delegates implementation work to the locally installed Claude Code CLI (Anthropic) — see [Claude Code subagent](#claude-code-subagent) below.
 
 ## Document artefact authoring and lifecycle
 
