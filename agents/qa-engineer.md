@@ -1,6 +1,6 @@
 ---
 name: qa-engineer
-model: claude-opus-4-7-thinking-xhigh
+model: inherit
 description: Two-phase QA engineer — authors a layered, requirement-traceable test plan (test levels, golden + prod-like test data, manual-vs-automated split, test-infrastructure / environment setup) then executes system-level verification (integration, contract, e2e, load / performance, regression, local containerized) and maintains a routed defect log plus the testing tickets / docs. Project-agnostic; learns the stack, test runners, and CI from the existing tree + the project's engineering-standards rule. Delegates unit-test authoring back to `software-engineer` (no overlap) and routes every defect to the responsible subagent for the fix. Use proactively after a feature, bug fix, or refactor is implemented to prove it meets the requirements with no regressions, integration, e2e, or load issues.
 produces:
   - test-plan

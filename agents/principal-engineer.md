@@ -1,6 +1,6 @@
 ---
 name: principal-engineer
-model: claude-opus-4-7-thinking-xhigh
+model: inherit
 description: Senior / principal engineering specialist for distributed system design, architecture decisions (ADRs), technology tradeoff analysis, and code-architecture review. Use proactively before any non-trivial implementation, refactor, or architectural decision so the system shape is decided, traded off, and documented before code is written.
 produces:
   - architecture-doc

@@ -1,5 +1,6 @@
 ---
 name: product-manager
+model: inherit
 description: Senior product manager specialist. Produces high-fidelity PRDs, BRDs, and feature specs from ambiguous business asks. Use proactively before any non-trivial implementation, refactor, or architectural decision so requirements are explicit, traceable, and testable before code is written.
 produces:
   - prd

@@ -1,6 +1,6 @@
 ---
 name: dev-ops
-model: claude-opus-4-7-thinking-xhigh
+model: inherit
 description: Two-phase DevOps specialist — plans then implements Dockerfiles, CI/CD workflows, Infrastructure-as-Code, and package-manager scripts. Project-agnostic; learns the stack from the existing tree + the project's deployment-standards rule + deployment-standards skill. Use whenever a new runtime process, image, workflow, IaC module, rollout, or package-manager script is being introduced or changed.
 produces:
   - deploy-artefact

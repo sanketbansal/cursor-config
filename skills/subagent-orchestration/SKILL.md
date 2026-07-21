@@ -1,6 +1,6 @@
 ---
 name: subagent-orchestration
-description: Use whenever you receive a non-trivial coding, design, deployment, audit, or review task. Discovers the registered subagent roster, classifies each agent by its declared `produces` and `consumes` artefact types, builds a per-task dependency graph from the user's terminal artefact backwards, dispatches subagents respecting that graph (sequential where edges exist, parallel where they don't), and enforces the human-in-the-loop relay contract — when any subagent returns a fenced `cursor-checkpoint` YAML block, the parent MUST relay the question to the user via `AskQuestion` verbatim and then resume the subagent with the user's answer. Roster-agnostic and dataflow-driven; no fixed workflow templates, no hard-coded subagent names.
+description: Use whenever you receive a non-trivial coding, design, deployment, audit, or review task. Discovers the registered subagent roster, classifies each agent by its declared `produces` and `consumes` artefact types, builds a per-task dependency graph from the user's terminal artefact backwards, dispatches subagents respecting that graph (sequential where edges exist, parallel where they don't), and enforces the human-in-the-loop relay contract — when any subagent returns a fenced `cursor-checkpoint` YAML block, the parent MUST relay the question to the user via `AskQuestion` verbatim and then resume the subagent with the user's answer. Roster-agnostic and dataflow-driven; no fixed workflow templates, no hard-coded subagent names. Also owns the per-todo model-routing procedure (§12): every dispatch gets an explicitly routed model — quality floor first from dated independent evidence, then lowest expected token cost — never a permanent per-agent model pin, never provider bias.
 ---
 
 # Subagent Orchestration
@@ -180,7 +180,7 @@ Step-by-step:
    - If multiple agents declare the same `produces` for an artefact the graph needs → tiebreak by description match against the task; if still ambiguous, ask the user which one.
 6. **Topologically sort the graph and identify the critical path.** Sources (no incoming edges) first; terminals last. The critical path is the longest dependency chain from a satisfied leaf to the terminal artefact — it sets the floor on total elapsed time. Every node **off** the critical path must be scheduled at its earliest ready time so it never adds to the total; only critical-path nodes are allowed to be the thing everything else waits on.
 7. **Dispatch loop — as-soon-as-ready, never lockstep.** Repeat until the terminal artefact is produced:
-   - Collect every node whose dependencies are all satisfied and dispatch **all** of them now — multiple ready nodes get concurrent `Task` calls in a single message; a single ready node gets one call.
+   - Collect every node whose dependencies are all satisfied and dispatch **all** of them now — multiple ready nodes get concurrent `Task` calls in a single message; a single ready node gets one call. Each dispatch carries an explicitly routed model chosen per the §12 model-routing procedure (quality floor first, then lowest expected token cost).
    - **Re-compute the ready set after every single completion**, not after a batch. The moment any node completes and its artefact is marked satisfied, any newly-ready node is dispatched immediately — even while other nodes from the previous dispatch are still running. Never hold a ready node back until a whole "wave" closes when only one edge actually gated it.
    - While dispatched nodes run, the parent does its own independent work (remaining discovery, temp-dir setup, repo survey, plan bookkeeping) or ends the turn and reacts to completion notifications — it never vacuously polls a running subagent (`~/.cursor/rules/execution-time-discipline.mdc`).
    - On each completion, mark the produced artefacts satisfied. If a return carries a `cursor-checkpoint` block → trigger the §6 Relay protocol for that node; siblings already in flight keep running, and newly-ready nodes that do not depend on the paused node keep dispatching.
@@ -289,6 +289,9 @@ A concise checklist for adding a new subagent later. The orchestration layer nee
 - **"The subagent is running; I'll poll it every minute until it finishes."** Vacuous polling wastes the parent's turn. Do independent work (other ready nodes, discovery, bookkeeping) or end the turn and react to the completion notification (`~/.cursor/rules/execution-time-discipline.mdc`).
 - **"These two nodes have no edge between them, but the usual order runs A before B, so I'll serialize them."** No — absence of an edge means parallel. Serializing independent nodes because a memorised template implies an order is the same defect as consulting a fixed pipeline.
 - **"The subagent failed; I'll just dispatch it again with the same prompt."** Banned. One re-dispatch with a narrowed / corrected prompt, then the failure goes to the user (§7 stall policy). Identical re-dispatches are a retry loop, not a recovery.
+- **"I'll route everything to the strongest model to be safe."** Routing collapse to premium-only is the defect §12 exists to prevent. The floor qualifies; the cost objective selects. A premium model is chosen only when cheaper candidates miss the floor or an escalation demands it.
+- **"This model just launched, so it must be better."** A model without fresh, independent, harness-comparable evidence is unqualified (§12.3). Novelty is not evidence.
+- **"The vendor's leaderboard says 95%, good enough."** Provider claims and contaminated benchmark headlines never establish quality (§12.8). Only dated independent evidence qualifies a model.
 
 ## §10 Plan-time orchestration deliverable
 
@@ -306,6 +309,7 @@ When producing a plan for a non-trivial task, run the same discovery (§2 + §2.
 6. **MCP capability classes.** The external-context capability classes the work will touch (e.g. issue tracker, design source, observability metrics), named as **classes, never as server names**, per §2.5.
 7. **Per-todo executor annotation.** Each plan todo names its responsible executor — a subagent id discovered from `~/.cursor/agents/`, or `parent/direct` when the parent handles it without a subagent.
 8. **Per-dispatch time budget + stall policy.** Each dispatched node gets a soft time budget (its expected-runtime class, per `~/.cursor/rules/execution-time-discipline.mdc`), and the plan states the stall policy that governs every node: one re-dispatch with a narrowed prompt on failure, then the failure goes to the user (§7 stall policy); a `kind: blocked` checkpoint is relayed like any question (§1).
+9. **Per-todo routing card.** For every dispatched todo, the §12 routing annotation: task family + difficulty/risk, quality floor (Q1–Q4), live-candidate source (the roster is re-discovered at execution), requested model slug, evidence "as of" date, expected token-cost class, context/output bands, planned escalation candidate, validation gate, and resolution status. Plan-time slugs are a snapshot; the plan states that execution re-resolves against the then-current `Task` schema.
 
 ### Proportionality
 
@@ -357,9 +361,110 @@ When the terminal artefact is produced and orchestration completes successfully,
 - §6: an artefact is marked *satisfied* only on a complete terminal return, never at a checkpoint pause.
 - §10: the plan-time Orchestration workflow marks each artefact node as deliverable or transient so the placement and cleanup are visible up front.
 
+## §12 Model routing — quality floor first, then lowest expected token cost
+
+Every dispatched node gets a **routed model**, chosen per todo at dispatch time — never inherited from a permanent per-agent pin and never defaulted to the most expensive model "to be safe". The routing objective is fixed: **enforce a task-specific quality floor first, then minimize expected token cost among the qualified candidates.** Latency is a gate only when the user supplies a limit; it never silently overrides the cost objective. This section is the canonical owner of the routing procedure; `~/.cursor/rules/plan-orchestration.mdc` requires plans to apply it, and the evidence that feeds it lives in the sibling ledger at `model-evidence.md` (same directory as this skill).
+
+Two non-negotiables, mirroring the top of this skill:
+
+1. **Never hard-code a model roster.** The candidate set is the intersection of (a) the model IDs the live `Task` tool schema / current Cursor catalog accepts *right now* and (b) fresh evidence records in `model-evidence.md`. Any slug list written in a plan or in the ledger is a dated snapshot, never canonical. Execution re-discovers the roster at dispatch time.
+2. **Never let provider identity, novelty, or price affect quality rank.** Quality comes only from dated, independent, harness-comparable public evidence. A brand-new model with no independent evidence is *unqualified*, not "probably great". First-party / included-usage pricing advantages may improve a model's **cost** rank, never its **quality** rank.
+
+### §12.1 Contracts
+
+The routing stage works with four prose/YAML contracts. They are working vocabulary for plans and dispatch annotations, not executable schemas.
+
+- **ModelCatalogSnapshot** — discovery timestamp + the explicit model slugs the current `Task` schema accepts. Source: the live schema only. Cached per task; re-discovered next task.
+- **DispatchRequirement** — per ready node: todo ID + executor; task family + difficulty; risk/reversibility class; quality floor (Q1–Q4, §12.3); required tool / modality / context capabilities; estimated input & output token bands; any user-supplied latency or spend constraint.
+- **ModelEvidenceRecord** — one per model slug in `model-evidence.md`: exact live slug + documented aliases; benchmark source, version, evaluation date, harness, evaluator; per-dimension scores with uncertainty; contamination / comparability appraisal; context & tool capability; current price or ordinal cost class; evidence expiry date.
+- **RoutingDecision** — recorded per dispatch: qualified and rejected candidates with reasons; requested model + expected-cost rank; planned escalation candidate; evidence "as of" date; resolution status `requested` / `resolved` / `served-unverified`; validation or fallback reason when applicable.
+
+### §12.2 Task-family classification
+
+Classify the **todo**, not merely the subagent — the same agent can carry todos of different families. Families and their primary capability dimensions:
+
+- **Repository exploration** — retrieval, long-context fidelity, tool use.
+- **Requirements & documentation** — instruction following, factuality, structured writing.
+- **Architecture & research** — deep reasoning, long-context synthesis, non-hallucination.
+- **Implementation** — agentic coding, terminal use, self-repair, test completion.
+- **Debugging** — fault localization, causal reasoning, tool use, repair.
+- **Review / security / QA** — defect detection, adversarial reasoning, non-hallucination.
+- **DevOps** — terminal execution, configuration reasoning, partial-failure awareness.
+- **UX / multimodal** — multimodal support where required, instruction following, structured synthesis.
+
+A mixed todo takes the **highest** floor of its constituent families. When two halves of a todo need incompatible capability profiles, split the todo; never average.
+
+### §12.3 Quality floors (Q1–Q4)
+
+Floors are ordinal and derived from dated public leaderboard **distributions**, never from provider claims:
+
+- **Q1 — routine.** At least the public-leaderboard median on the primary dimension. Default for routine, reversible, locally-validated work.
+- **Q2 — substantive.** Top quartile on the primary dimension; no relevant secondary dimension below median. Default for non-trivial design, implementation, or diagnosis.
+- **Q3 — complex / high-risk.** Statistically within the leading confidence cluster on the primary dimension; top quartile on secondaries. Default for cross-module, security-sensitive, deployment, or hard partial-failure work.
+- **Q4 — frontier-critical.** Strongest credible evidence across ≥ 2 relevant benchmark families. Only for regulated, irreversible, or explicitly frontier-quality work — and always paired with the existing human checkpoint.
+
+A candidate **qualifies** only when *all* of these hold: its exact slug is in the live roster; its evidence is fresh (§12.8) and maps unambiguously to that slug; required tools / modality / context fit; every non-compensable gate clears; any user-supplied latency or cost ceiling is met. **Missing evidence means unqualified — not "assume average".**
+
+### §12.4 Routing algorithm
+
+For each ready graph node:
+
+1. Build the `DispatchRequirement` (family, floor, gates, token bands).
+2. Intersect the live roster with fresh `ModelEvidenceRecord`s.
+3. Apply the qualification gates (§12.3).
+4. Estimate each qualified candidate's **expected token cost**: `initial token-cost band + evidence-derived failure band × cost of one escalation`.
+5. Select the minimum expected-cost candidate.
+6. Break ties by: lower evidence uncertainty → stronger primary-dimension score → lower expected output-token use → stable lexical slug order (determinism).
+7. Dispatch with an explicit `model=<slug>` on the `Task` call.
+8. Record the `RoutingDecision` in the plan / transcript (§12.9).
+
+Once this deterministic policy is approved for a task, individual routing decisions do **not** trigger an `AskQuestion` per dispatch — the ask-don't-assume rule is satisfied by the approved policy. Questions remain for missing constraints that materially change scope or compliance (no qualified candidate, floor relaxation, spend ceiling).
+
+### §12.5 Escalation cascade — validation-driven, never speculative
+
+- Start with the **cheapest** model that clears the floor. Validate the artefact with the todo's normal deterministic gate (tests / lint / type-check for code; mandatory-outline completeness for documents; dated-citation discipline for research; failure/consistency coverage for architecture; deterministically-detectable violations for reviews).
+- On a capability-related validation failure, escalate **once**: pick the next-cheapest qualified candidate that is stronger on the failed dimension. Pass the original inputs, the persisted artefact, and concise failure evidence.
+- Maximum **one** automatic escalation per node; a second failure follows the §7 stall policy (surface to the user).
+- **No speculative best-of-N** and no parallel duplicate dispatches of the same todo on different models, unless the user explicitly asks for comparative attempts.
+- **Checkpoint resumes stay on the same model** — `Task(resume=…)` cannot change models, and a checkpoint is not a failure. The §7 "never start fresh" rule carries exactly one narrow exception: a **recorded post-validation model escalation** (or a user-chosen recovery from a `kind: blocked` checkpoint) is a fresh dispatch with an explicit handoff of the persisted artefact + failure evidence. That exception never applies to an ordinary question checkpoint.
+
+### §12.6 Context & token budgeting
+
+Each dispatch annotation carries: an estimated context band (small / medium / large / near-limit); an input reserve for upstream artefacts; an output reserve sized to the artefact type; the one-escalation cap; and the aggregate fanout token band when multiple nodes are concurrently ready (each subagent has independent context — N parallel nodes ≈ N× the tokens of one).
+
+- A model is **disqualified** when estimated prompt + output reserve exceeds its documented context capability.
+- Pass paths to persisted artefacts instead of inlining full upstream documents (§11 already requires file-backed artefacts).
+- `Task` exposes no hard token-budget parameter, so budgeting is enforced through prompt scope, bounded sections (§11), context-fit disqualification, and dispatch count — never claimed as a runtime hard cap.
+
+### §12.7 Availability & fallback
+
+- **Observably unsupported / unavailable model** → try the next-cheapest already-qualified candidate once, then §7 stall policy.
+- **No qualified candidate at all** → `AskQuestion`: relax the floor, change account/availability constraints, or permit `inherit` / Auto with an explicitly unverified floor. Never lower the floor silently.
+- **Silent platform fallback.** Cursor may substitute a compatible model for an explicit request (admin block, plan limitation, legacy Max Mode) without surfacing the served model. Enforcement is therefore **policy-time**: the floor is enforced for the *requested* model; when the served model cannot be confirmed, the dispatch is recorded `served-unverified` and the parent never claims the served model met the floor. If Cursor surfaces model resolution, compare the served model against the qualification set and treat a non-qualified serve as a validation failure.
+- Agent frontmatter stays `model: inherit` (portable manual invocation; no stale pins); routed orchestration always passes the explicit `model=` per dispatch.
+
+### §12.8 Evidence policy — `model-evidence.md`
+
+The sibling ledger holds the volatile data this section consumes. Its rules:
+
+- **Independent, dated, harness-comparable public evaluations only** for quality (e.g. terminal-agentic benchmarks, live contamination-resistant coding benchmarks, task-relevant component scores of reputable independent evaluators — never a vendor's own headline number, and never a composite that hides the task-relevant dimension). Provider documentation may establish **price, context size, and availability — never quality**.
+- **Contaminated or retracted benchmarks do not qualify a model.** As of the ledger's last review, fixed SWE-bench headline family scores are in this category; the ledger records the appraisal.
+- **Freshness:** every record carries an expiry (≤ 30 days from review). Refresh immediately when the live roster, a slug alias, pricing, a benchmark version, or an evaluator methodology changes. Expired evidence disqualifies the model until refreshed.
+- **Uncertainty is first-class:** scores carry their confidence context; small score differences inside one confidence cluster do not rank candidates — the tie-breakers in §12.4 do.
+- **No permanent roster and no provider preference** may ever be written into the ledger. Records exist only for slugs observed in a live roster snapshot, and dead records are pruned on review.
+
+### §12.9 Observability without a telemetry store
+
+Audit uses existing surfaces only — no event files, databases, or append-only runtime logs:
+
+- The plan's Orchestration workflow carries a **routing card** per dispatched todo (§10 item 9).
+- The `Task` prompt states the requested model and one-line route rationale.
+- The transcript is the session audit trail; the parent's completion summary lists per node: requested model, escalation (if any), validation result, evidence date, and resolution status.
+
 ## References
 
 - The hook contract — `~/.cursor/hooks.json` and `~/.cursor/hooks/relay-subagent-checkpoint.sh`. The hook fires on `subagentStop`, scans for the §1 marker, injects a `followup_message` instructing the parent to call `AskQuestion`. `failClosed: false` so a hook bug never wedges the agent.
 - The User Rules — the parent-side hard rule "Subagent orchestration (always apply)" lives in your **Cursor Settings → Rules → User Rules** (Cursor stores user rules in your account, not on disk). This skill is the runbook the rule points to.
-- The current 8 user-defined subagents — `product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops`, `qa-engineer`, `ux-designer`, `ai-researcher` at [`~/.cursor/agents/`](~/.cursor/agents/). Each one's frontmatter declares its `produces` and `consumes`. Each one's body contains a "Checkpoint output contract" paragraph referencing §1 of this skill.
+- The current 10 user-defined subagents — `product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops`, `qa-engineer`, `ux-designer`, `ai-researcher`, `ai-engineer`, `claude-code` at [`~/.cursor/agents/`](~/.cursor/agents/). Each one's frontmatter declares its `produces` and `consumes` (and `model: inherit` per §12.7). Subagents that pause for input carry a "Checkpoint output contract" paragraph referencing §1 of this skill.
+- The model-evidence ledger — `model-evidence.md`, sibling of this skill. Volatile dated evidence for §12; carries its own refresh procedure and expiry.
 - Cursor hook documentation — [`~/.cursor/skills-cursor/create-hook/SKILL.md`](~/.cursor/skills-cursor/create-hook/SKILL.md) for the hook event taxonomy and matcher conventions.

@@ -1,5 +1,6 @@
 ---
 name: claude-code
+model: inherit
 description: Delegate coding work to the locally installed Claude Code CLI (Anthropic) as a Cursor subagent. Use proactively for heavy multi-step coding tasks, large refactors, deep code reviews, large-context implementation, or any task where a second top-tier model should do focused work as a second opinion alongside the Cursor main agent. Pre-flights auth and a one-token probe before delegating, and reports an availability envelope so the parent can fall back if Claude Code is rate-limited or signed out.
 produces: [code-diff, lld-plan, review-report, bug-diagnosis]
 consumes: [task-description, code-context, architecture-doc, lld-plan]

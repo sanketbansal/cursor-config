@@ -1,6 +1,6 @@
 ---
 name: staff-engineer
-model: claude-opus-4-7-thinking-xhigh
+model: inherit
 description: Senior staff engineer — produces low-level design (LLD) and code-based design plans (module decomposition, per-class / per-interface shape with OOP + SOLID + design-pattern fits, schema, sequenced waves) from PRD + architecture + engineering standards. **Produces no code.** Implementation is delegated to `software-engineer`. Project-agnostic; use before greenfield, rebuilds, or module splits.
 produces:
   - lld-plan
