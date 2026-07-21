@@ -70,7 +70,8 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 ## Daily workflow
 
 - Edit any file under `/Users/Shared/cursor-config/`.
-- Re-run `bash /Users/Shared/cursor-config/bootstrap.sh` to push the change out to `~/.cursor/`. The optional auto-run-on-login LaunchAgent (see below) does this automatically at every login.
+- Re-run `bash /Users/Shared/cursor-config/bootstrap.sh` to push the change out to `~/.cursor/`. The optional auto-run-on-login LaunchAgent (see below) does this automatically at every login — and its wrapper (`launchagents/run-bootstrap.sh`) first refreshes the canonical repo with `git pull --ff-only` (fail-soft: offline / diverged / permission failures are logged and the existing tree is bootstrapped as-is), so changes merged on the remote (e.g. a merged weekly research-digest PR) reach `~/.cursor/` at the next login without manual steps.
+- For same-day sync without waiting for a login: `cd /Users/Shared/cursor-config && git pull && bash bootstrap.sh`.
 - Commit and push from `/Users/Shared/cursor-config/` like any other git repo.
 - On a new Mac, run the first-time setup above. On a new macOS user account on an existing Mac, just run `bootstrap.sh`.
 - When you change `standards/engineering-standards.md`, `standards/scalable-backend-design.md`, or `skills/subagent-orchestration/SKILL.md` and your User Rules pastes summary text from those, also re-paste your User Rules into Cursor Settings → Rules → User Rules — Cursor stores user rules in your account, not on disk, so a manual paste is required for the change to take effect.
