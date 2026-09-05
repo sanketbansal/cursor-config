@@ -141,8 +141,15 @@ The canonical ask-don't-assume boilerplate (identical wording lives in `~/.curso
 - Never retry a rate-limit or auth failure on your own. The parent decides.
 - Never echo the parent's full instructions back to the user. Your job is to relay results, not to narrate the relay.
 - Never edit files outside the runner's invocation. You have no business writing code; that is Claude Code's job, and only inside the `run` subcommand.
+- Never skip or impersonate `code-optimizer`. Implementation `code-diff` output is raw; the parent owns the mandatory refinement gate.
 
-## 2.9 Execution time discipline
+## 2.9 Downstream optimization gate
+
+When this subagent produces a `code-diff` (implementation / refactor), that output is the **raw implementer `code-diff`**. The parent always routes it through `code-optimizer` before `qa-engineer`, `dev-ops`, or terminal delivery. Do not treat formatting perfection or footprint collapse as your job on an implementation pass — put success criteria, constraints, and test commands in the brief so Claude Code leaves a green gate; the optimizer refines shape afterwards.
+
+When this subagent produces `review-report`, `lld-plan`, or `bug-diagnosis` (not a fresh implementation `code-diff`), the optimization gate does not apply.
+
+## 2.10 Execution time discipline
 
 `~/.cursor/rules/execution-time-discipline.mdc` governs your Shell usage around the runner. In brief:
 

@@ -4,14 +4,15 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 
 ## Layout
 
-- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Ten agent files (plus the `claude-code` runner) in two complementary groups:
-  - **Pipeline subagents** that compose under `subagent-orchestration` (artefact dataflow `business-prompt → prd → architecture-doc → lld-plan → code-diff → deploy-artefact`, with verification on top):
+- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Eleven agent files (plus the `claude-code` runner) in two complementary groups:
+  - **Pipeline subagents** that compose under `subagent-orchestration` (artefact dataflow `business-prompt → prd → architecture-doc → lld-plan → code-diff (implementer → code-optimizer) → deploy-artefact`, with verification on top):
     - `product-manager.md` — produces `prd` from a `business-prompt`.
     - `principal-engineer.md` — produces `architecture-doc` (and ADRs) from a `prd`.
     - `staff-engineer.md` — produces `lld-plan` (module decomposition, schema, sequenced waves) from `prd` + `architecture-doc`. Produces no code.
     - `software-engineer.md` — produces `code-diff` (production code + tests) from an `lld-plan`.
-    - `dev-ops.md` — produces `deploy-artefact` (Dockerfiles, CI/CD workflows, IaC, package-manager scripts) from `lld-plan` + `code-diff`.
-    - `qa-engineer.md` — produces `test-plan` + `qa-report` (layered test strategy, then executed verification with a routed defect log) from `prd` + `architecture-doc` + `lld-plan` + `code-diff`. Delegates unit-test authoring to `software-engineer` and routes each defect back to the responsible subagent.
+    - `code-optimizer.md` — refines the implementer's `code-diff` in place (minimal footprint, readability, formatting, engineering-standards) without changing behaviour. Mandatory gate after `software-engineer` / `claude-code` and before `qa-engineer`, `dev-ops`, or terminal delivery.
+    - `dev-ops.md` — produces `deploy-artefact` (Dockerfiles, CI/CD workflows, IaC, package-manager scripts) from `lld-plan` + the optimized `code-diff`.
+    - `qa-engineer.md` — produces `test-plan` + `qa-report` (layered test strategy, then executed verification with a routed defect log) from `prd` + `architecture-doc` + `lld-plan` + the optimized `code-diff`. Delegates unit-test authoring to `software-engineer`, routes polish defects to `code-optimizer`, and routes each other defect back to the responsible subagent.
   - **Specialist subagents** outside (or parallel to) the pipeline:
     - `ux-designer.md` — design-first UI/UX research + design specialist. Produces `ux-research` + `ux-design-spec` from a `prd`, and creates the actual design files (e.g. Figma) via MCP with every write relay-gated. Never writes frontend code (delegates to `software-engineer`); runs in parallel with `principal-engineer` after the PRD.
     - `ai-researcher.md` — AI research specialist. Produces `research-brief` (SOTA survey with dated citations, critically-appraised benchmarks, compared-alternatives recommendation matrix with epistemic-status labels) via live web retrieval on every invocation plus an append-only distilled knowledge base (every KB write relay-gated). Conditional edge: when a task has an AI/ML surface, the parent adds it as an early parallel producer feeding `ai-engineer` / `principal-engineer` / `staff-engineer`. Never designs, plans, or codes.
@@ -58,7 +59,7 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 3. Verify:
 
    ```sh
-   ls ~/.cursor/agents/             # 10 files: 6 pipeline + ux-designer + ai-researcher + ai-engineer + claude-code (+ runner)
+   ls ~/.cursor/agents/             # 11 markdown agent files: 7 pipeline (incl. code-optimizer) + ux-designer + ai-researcher + ai-engineer + claude-code (+ runner)
    ls ~/.cursor/skills/             # 4 skill folders
    ls ~/.cursor/hooks/              # relay-subagent-checkpoint.sh
    cat ~/.cursor/hooks.json         # subagentStop registration
@@ -88,7 +89,7 @@ Accounts bootstrapped before the copy-everything switch had `~/.cursor/{agents,s
 
 ## Pipeline subagents
 
-The five pipeline subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `dev-ops`) compose end-to-end under the `subagent-orchestration` skill's dependency-graph procedure. Each agent declares `produces` / `consumes` against the artefact vocabulary in `skills/subagent-orchestration/SKILL.md` §3, and the parent Cursor agent builds a per-task graph from those declarations rather than from a fixed pipeline diagram. Different tasks produce different graphs; the user's task and what the user has already provided determine which agents fire.
+The seven pipeline subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `code-optimizer`, `dev-ops`, `qa-engineer`) compose end-to-end under the `subagent-orchestration` skill's dependency-graph procedure. Each agent declares `produces` / `consumes` against the artefact vocabulary in `skills/subagent-orchestration/SKILL.md` §3, and the parent Cursor agent builds a per-task graph from those declarations rather than from a fixed pipeline diagram. Different tasks produce different graphs; the user's task and what the user has already provided determine which agents fire.
 
 Every subagent that pauses for input emits a fenced `cursor-checkpoint` block (schema in `skills/subagent-orchestration/SKILL.md` §1). The parent must relay the question to the user via `AskQuestion` verbatim, then resume the same subagent with `Task(resume=<id>, prompt=<answer>)`. This is the inviolable rule of the orchestration model — see `skills/subagent-orchestration/SKILL.md` §6 for the full protocol and `rules/ask-dont-assume.mdc` for the universal ask-don't-assume policy.
 
@@ -139,6 +140,9 @@ Follow `~/.cursor/scalable-backend-design.md` and the `scalable-system-design` s
 
 # Subagent orchestration (always apply)
 For any non-trivial coding, design, deployment, audit, or review task, follow the orchestration runbook in `~/.cursor/skills/subagent-orchestration/SKILL.md`. Discover registered subagents under `~/.cursor/agents/`, build the per-task dependency graph from each agent's `produces`/`consumes` frontmatter, and dispatch by graph topology. When any subagent emits a fenced `cursor-checkpoint` block, your first action is to relay the question to the user via `AskQuestion` verbatim and resume the subagent with the answer; never invent answers, never paraphrase.
+
+# Code optimizer gate (always apply)
+After any `software-engineer` or `claude-code` implementation `code-diff`, the parent always dispatches `code-optimizer` before verification, deploy, or terminal delivery. Skip only for the trivial parent-handled branch or when `code-diff` is already satisfied by repo source with no fresh implementer output. After implementation, code always passes through `code-optimizer` before verification or deploy.
 
 # Plan-time orchestration (always apply)
 Follow `~/.cursor/rules/plan-orchestration.mdc`. When you produce a plan for a non-trivial task, also embed an Orchestration workflow computed from the available subagents per the `subagent-orchestration` skill's §10 — the dependency graph, dispatch waves (parallel vs sequential), checkpoint map, a responsible executor on every todo, and a §12 model-routing card per dispatched todo (quality floor first, then lowest expected token cost, from the live model catalog and the dated evidence ledger). This is an on-disk rule that auto-applies; this pointer is reinforcement. Trivial tasks skip it.
