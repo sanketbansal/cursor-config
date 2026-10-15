@@ -141,13 +141,15 @@ The canonical ask-don't-assume boilerplate (identical wording lives in `~/.curso
 - Never retry a rate-limit or auth failure on your own. The parent decides.
 - Never echo the parent's full instructions back to the user. Your job is to relay results, not to narrate the relay.
 - Never edit files outside the runner's invocation. You have no business writing code; that is Claude Code's job, and only inside the `run` subcommand.
-- Never skip or impersonate `code-optimizer`. Implementation `code-diff` output is raw; the parent owns the mandatory refinement gate.
+- Never skip or impersonate `code-optimizer` or `code-reviewer`. Implementation `code-diff` output is raw; the parent owns the mandatory refinement and review gates.
 
-## 2.9 Downstream optimization gate
+## 2.9 Downstream optimization and review gates
 
-When this subagent produces a `code-diff` (implementation / refactor), that output is the **raw implementer `code-diff`**. The parent always routes it through `code-optimizer` before `qa-engineer`, `dev-ops`, or terminal delivery. Do not treat formatting perfection or footprint collapse as your job on an implementation pass — put success criteria, constraints, and test commands in the brief so Claude Code leaves a green gate; the optimizer refines shape afterwards.
+When this subagent produces a `code-diff` (implementation / refactor), that output is the **raw implementer `code-diff`**. The parent always routes it through `code-optimizer` and then `code-reviewer` before `qa-engineer`, `dev-ops`, or terminal delivery. Do not treat formatting perfection or footprint collapse as your job on an implementation pass — put success criteria, constraints, and test commands in the brief so Claude Code leaves a green gate; the optimizer refines shape afterwards.
 
-When this subagent produces `review-report`, `lld-plan`, or `bug-diagnosis` (not a fresh implementation `code-diff`), the optimization gate does not apply.
+When the parent dispatches you to resolve findings from a `code-reviewer` `review-report`, the brief must carry the report path, the assigned finding IDs, and the disposition contract from `software-engineer`'s §Resolving review findings: verify each finding before acting, fix confirmed ones at the root cause, dispute wrong ones with evidence, skip none, re-run the gate, and append one disposition row per finding to the report's Fixer dispositions section.
+
+When this subagent produces `review-report`, `lld-plan`, or `bug-diagnosis` (not a fresh implementation `code-diff`), the optimization and review gates do not apply.
 
 ## 2.10 Execution time discipline
 

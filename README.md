@@ -4,15 +4,16 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 
 ## Layout
 
-- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Eleven agent files (plus the `claude-code` runner) in two complementary groups:
-  - **Pipeline subagents** that compose under `subagent-orchestration` (artefact dataflow `business-prompt → prd → architecture-doc → lld-plan → code-diff (implementer → code-optimizer) → deploy-artefact`, with verification on top):
+- `agents/` — custom subagents that ship into `~/.cursor/agents/`. Twelve agent files (plus the `claude-code` runner) in two complementary groups:
+  - **Pipeline subagents** that compose under `subagent-orchestration` (artefact dataflow `business-prompt → prd → architecture-doc → lld-plan → code-diff (implementer → code-optimizer → code-reviewer, fix loop until approved) → deploy-artefact`, with verification on top):
     - `product-manager.md` — produces `prd` from a `business-prompt`.
     - `principal-engineer.md` — produces `architecture-doc` (and ADRs) from a `prd`.
     - `staff-engineer.md` — produces `lld-plan` (module decomposition, schema, sequenced waves) from `prd` + `architecture-doc`. Produces no code.
     - `software-engineer.md` — produces `code-diff` (production code + tests) from an `lld-plan`.
-    - `code-optimizer.md` — refines the implementer's `code-diff` in place (minimal footprint, readability, formatting, engineering-standards) without changing behaviour. Mandatory gate after `software-engineer` / `claude-code` and before `qa-engineer`, `dev-ops`, or terminal delivery.
-    - `dev-ops.md` — produces `deploy-artefact` (Dockerfiles, CI/CD workflows, IaC, package-manager scripts) from `lld-plan` + the optimized `code-diff`.
-    - `qa-engineer.md` — produces `test-plan` + `qa-report` (layered test strategy, then executed verification with a routed defect log) from `prd` + `architecture-doc` + `lld-plan` + the optimized `code-diff`. Delegates unit-test authoring to `software-engineer`, routes polish defects to `code-optimizer`, and routes each other defect back to the responsible subagent.
+    - `code-optimizer.md` — refines the implementer's `code-diff` in place (minimal footprint, readability, formatting, engineering-standards) without changing behaviour. Mandatory gate after `software-engineer` / `claude-code` and before `code-reviewer`.
+    - `code-reviewer.md` — produces `review-report` from the optimized `code-diff` + the plan of record: a plan-fidelity matrix (every plan item → code → test), an end-to-end effectiveness walk, a line-level quality review (correctness, standards, SOLID, optimality, consistency), and evidence-backed findings each routed to its fixer (`software-engineer` / `claude-code` for behaviour, `code-optimizer` for behaviour-preserving polish, `staff-engineer` / `principal-engineer` for plan or architecture defects). Read-only on code. Mandatory gate after `code-optimizer` and before `qa-engineer`, `dev-ops`, or terminal delivery; fixers verify each finding and fix or dispute it with evidence, and the reviewer re-reviews until the verdict is `approved`.
+    - `dev-ops.md` — produces `deploy-artefact` (Dockerfiles, CI/CD workflows, IaC, package-manager scripts) from `lld-plan` + the optimized, review-approved `code-diff`.
+    - `qa-engineer.md` — produces `test-plan` + `qa-report` (layered test strategy, then executed verification with a routed defect log) from `prd` + `architecture-doc` + `lld-plan` + the optimized, review-approved `code-diff`. Delegates unit-test authoring to `software-engineer`, routes polish defects to `code-optimizer`, and routes each other defect back to the responsible subagent.
   - **Specialist subagents** outside (or parallel to) the pipeline:
     - `ux-designer.md` — design-first UI/UX research + design specialist. Produces `ux-research` + `ux-design-spec` from a `prd`, and creates the actual design files (e.g. Figma) via MCP with every write relay-gated. Never writes frontend code (delegates to `software-engineer`); runs in parallel with `principal-engineer` after the PRD.
     - `ai-researcher.md` — AI research specialist. Produces `research-brief` (SOTA survey with dated citations, critically-appraised benchmarks, compared-alternatives recommendation matrix with epistemic-status labels) via live web retrieval on every invocation plus an append-only distilled knowledge base (every KB write relay-gated). Conditional edge: when a task has an AI/ML surface, the parent adds it as an early parallel producer feeding `ai-engineer` / `principal-engineer` / `staff-engineer`. Never designs, plans, or codes.
@@ -59,7 +60,7 @@ Canonical source of truth for custom Cursor agents, skills, rules, hooks, and st
 3. Verify:
 
    ```sh
-   ls ~/.cursor/agents/             # 11 markdown agent files: 7 pipeline (incl. code-optimizer) + ux-designer + ai-researcher + ai-engineer + claude-code (+ runner)
+   ls ~/.cursor/agents/             # 12 markdown agent files: 8 pipeline (incl. code-optimizer, code-reviewer) + ux-designer + ai-researcher + ai-engineer + claude-code (+ runner)
    ls ~/.cursor/skills/             # 4 skill folders
    ls ~/.cursor/hooks/              # relay-subagent-checkpoint.sh
    cat ~/.cursor/hooks.json         # subagentStop registration
@@ -89,7 +90,7 @@ Accounts bootstrapped before the copy-everything switch had `~/.cursor/{agents,s
 
 ## Pipeline subagents
 
-The seven pipeline subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `code-optimizer`, `dev-ops`, `qa-engineer`) compose end-to-end under the `subagent-orchestration` skill's dependency-graph procedure. Each agent declares `produces` / `consumes` against the artefact vocabulary in `skills/subagent-orchestration/SKILL.md` §3, and the parent Cursor agent builds a per-task graph from those declarations rather than from a fixed pipeline diagram. Different tasks produce different graphs; the user's task and what the user has already provided determine which agents fire.
+The eight pipeline subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `software-engineer`, `code-optimizer`, `code-reviewer`, `dev-ops`, `qa-engineer`) compose end-to-end under the `subagent-orchestration` skill's dependency-graph procedure. Each agent declares `produces` / `consumes` against the artefact vocabulary in `skills/subagent-orchestration/SKILL.md` §3, and the parent Cursor agent builds a per-task graph from those declarations rather than from a fixed pipeline diagram. Different tasks produce different graphs; the user's task and what the user has already provided determine which agents fire.
 
 Every subagent that pauses for input emits a fenced `cursor-checkpoint` block (schema in `skills/subagent-orchestration/SKILL.md` §1). The parent must relay the question to the user via `AskQuestion` verbatim, then resume the same subagent with `Task(resume=<id>, prompt=<answer>)`. This is the inviolable rule of the orchestration model — see `skills/subagent-orchestration/SKILL.md` §6 for the full protocol and `rules/ask-dont-assume.mdc` for the universal ask-don't-assume policy.
 
@@ -97,7 +98,7 @@ The specialist subagents (`ux-designer`, `ai-researcher`, `ai-engineer`, `claude
 
 ## Document artefact authoring and lifecycle
 
-The six document-producing subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `ai-engineer`, `dev-ops` Phase-1 plan, `qa-engineer` test-plan + qa-report) **persist their artefact to a file and author it incrementally** rather than emitting the whole document in chat. This is the fix for subagent resource-exhaustion during plan/document generation: a large document re-rendered in chat at every checkpoint is what trips the output/context limit. The canonical contract is `skills/subagent-orchestration/SKILL.md` §11; each agent carries a short "Artefact authoring & persistence" section that points to it.
+The seven document-producing subagents (`product-manager`, `principal-engineer`, `staff-engineer`, `ai-engineer`, `dev-ops` Phase-1 plan, `qa-engineer` test-plan + qa-report, `code-reviewer` review-report) **persist their artefact to a file and author it incrementally** rather than emitting the whole document in chat. This is the fix for subagent resource-exhaustion during plan/document generation: a large document re-rendered in chat at every checkpoint is what trips the output/context limit. The canonical contract is `skills/subagent-orchestration/SKILL.md` §11; each agent carries a short "Artefact authoring & persistence" section that points to it.
 
 Key guarantees:
 
@@ -143,6 +144,9 @@ For any non-trivial coding, design, deployment, audit, or review task, follow th
 
 # Code optimizer gate (always apply)
 After any `software-engineer` or `claude-code` implementation `code-diff`, the parent always dispatches `code-optimizer` before verification, deploy, or terminal delivery. Skip only for the trivial parent-handled branch or when `code-diff` is already satisfied by repo source with no fresh implementer output. After implementation, code always passes through `code-optimizer` before verification or deploy.
+
+# Code reviewer gate (always apply)
+Whenever `code-optimizer` runs, the parent then dispatches `code-reviewer` before verification, deploy, or terminal delivery. On `changes-requested`, dispatch the fixers named in the review-report's handoff packets (plan owner, then implementer, then optimizer), then resume the same `code-reviewer`; repeat until `approved`. Never fix findings yourself and never ship with open findings unless the user accepts them.
 
 # Plan-time orchestration (always apply)
 Follow `~/.cursor/rules/plan-orchestration.mdc`. When you produce a plan for a non-trivial task, also embed an Orchestration workflow computed from the available subagents per the `subagent-orchestration` skill's §10 — the dependency graph, dispatch waves (parallel vs sequential), checkpoint map, a responsible executor on every todo, and a §12 model-routing card per dispatched todo (quality floor first, then lowest expected token cost, from the live model catalog and the dated evidence ledger). This is an on-disk rule that auto-applies; this pointer is reinforcement. Trivial tasks skip it.
