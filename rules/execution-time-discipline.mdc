@@ -1,12 +1,12 @@
 ---
-description: Universal execution-time-discipline policy. Every agent (the main Cursor agent in any mode and every custom subagent) must run commands non-interactively, time-box them, kill hung processes instead of re-waiting, bound retries to a changed-hypothesis budget, and never idle-wait — escalating via AskQuestion (parent) or a `cursor-checkpoint` `kind: blocked` block (subagent) when the budget is exhausted.
+description: Universal execution-time-discipline policy. Every agent (the main Cursor agent in any mode and every custom subagent) must run commands non-interactively, time-box them, kill hung processes instead of re-waiting, bound retries to a changed-hypothesis budget, fail fast on unviable tools and unreachable resources, detect and break its own loops, track a task-level time budget, and never idle-wait — escalating via AskQuestion (parent) or a `cursor-checkpoint` `kind: blocked` block (subagent) when the budget is exhausted.
 globs: "**"
 alwaysApply: true
 ---
 
 # Execution time discipline
 
-Agent time is a budgeted resource. The banned failure mode this rule exists to prevent: a command or tool call fails or hangs, and the agent waits, re-waits, or blindly re-runs the same thing — burning minutes without producing new information. Every wait must be justified by a specific awaited output; every retry must be justified by a changed hypothesis; every hang must be killed and diagnosed, never re-waited.
+Agent time is a budgeted resource. The banned failure modes this rule exists to prevent: a command or tool call fails or hangs, and the agent waits, re-waits, or blindly re-runs the same thing; the agent keeps trying a tool or resource it cannot use (missing, unauthenticated, forbidden); or the agent circles through the same reads, searches, and edits — each burning minutes without producing new information. Every wait must be justified by a specific awaited output; every retry must be justified by a changed hypothesis; every hang must be killed and diagnosed, never re-waited.
 
 ## Scope (every agent, every mode)
 
@@ -64,6 +64,41 @@ Re-waiting on the same silent process, or re-running the identical command hopin
 ## MCP / tool failure ladder
 
 On an erroring MCP tool call: one re-inspection (re-read the tool schema; re-authenticate if the failure is an auth error) → one adapted retry → escalate per the retry budget above. Never loop on an erroring MCP server, and never rotate through unrelated servers hoping one works.
+
+## Unviable tools and resources — detect early, pivot fast
+
+A tool or resource that cannot work is not a slow tool. Waiting on it, retrying it, or "checking again in a bit" burns the whole budget for zero information. Classify every failure **before** reacting to it:
+
+- **Permanent — zero identical retries.** Tool, CLI, or MCP namespace not found or not registered; namespace status `needsAuth` / `error` / `loading` that persists after one auth attempt; `401` / `403` / permission denied / `EACCES`; required file, repo, branch, table, ticket, or URL does not exist (`404`, `ENOENT`); sandbox or network policy blocks the call; quota exhausted, or a `Retry-After` longer than the remaining task budget; the tool's schema cannot perform the operation the task needs.
+- **Transient — eligible for the retry budget.** Timeouts, `429` with a short `Retry-After`, `5xx`, connection reset, lock contention.
+
+A permanent failure gets at most **one cause-changing recovery** — authenticate once, correct the path or ID, or switch to an already-available tool that serves the same capability — and then the agent pivots to independent work or escalates. It never re-waits on the same resource.
+
+- **Pre-flight before depending on a tool.** Before a step depends on an external tool, CLI, MCP server, credential, or remote resource, verify it with one cheap probe: `command -v <cli>`, the namespace status from tool discovery, or a single read-only call. A failed pre-flight is reported up front, not discovered twenty tool calls later.
+- **Degrade explicitly, never silently.** If the task can proceed without the resource, name the gap in the deliverable. If the gap changes the deliverable, escalate instead.
+
+## Loop and no-progress detection — track your own trajectory
+
+An agent can be stuck without any command hanging: re-reading the same files, re-running the same search, oscillating between two edits, or repeating one tool call with cosmetic changes. After every tool call, check whether it produced new information or moved state toward the goal. Any one of these **loop signals** means stop:
+
+- The same tool with the same (or trivially reworded) arguments returned the same result twice.
+- The same file, page, or resource was read a third time with no change in between.
+- An edit was reverted, or two approaches alternated, more than once (A → B → A).
+- The same error surfaced three times, regardless of what was changed.
+- Five consecutive tool calls produced no new information, no state change, and no completed todo.
+
+On a loop signal: stop, write a one-line diagnosis of why the last attempts did not progress, then take a genuinely different approach (different tool, different hypothesis, narrower scope) or escalate. A detected loop consumes one retry from the bounded retry budget; a second loop on the same goal escalates.
+
+## Task-level time budget — know where you are
+
+Command time-boxes bound single calls; the task as a whole needs a budget too. Measure it in elapsed wall-clock time where timestamps are visible, and in tool calls otherwise.
+
+- **Size the task at the start.** Use the `time-budget` the parent passed in the dispatch prompt. Without one, default by size: **small** ≤ 15 tool calls / ~5 min, **medium** ≤ 40 tool calls / ~20 min, **large** ≤ 100 tool calls / ~60 min.
+- **Check at every milestone** (completed todo, section, or wave): compare work done against budget spent. If more than half the budget is gone with less than half the work done, re-plan — narrow scope, parallelize, or drop non-essential work — and say so in the next progress note.
+- **At the bound, stop and report.** Reaching the budget without the deliverable means escalating with a status — done, remaining, blocker, budget spent — never continuing silently.
+- **Critical path first.** Work that blocks the deliverable comes before polish; nice-to-have work never delays the deliverable.
+
+Every escalation — `AskQuestion` or `kind: blocked` — states the budget spent alongside the attempts and the captured error, so the decision-maker can judge whether more time is worth it.
 
 ## Relationship to other rules
 

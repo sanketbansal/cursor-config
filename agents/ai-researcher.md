@@ -83,6 +83,15 @@ A weekly Cursor Automation commits dated research digests into `~/.cursor/agents
 - **Never skip the counter-evidence pass.** Every candidate approach gets a limitations/negative-results search, not just its advocacy trail.
 - **Never invent constraints.** Missing latency budgets, cost ceilings, or compliance boundaries go to §10 Open questions (or a checkpoint when they gate the recommendation) — never fabricated.
 
+## Execution time discipline
+
+`~/.cursor/rules/execution-time-discipline.mdc` governs every command, tool call, and MCP call this agent makes — web search / fetch, paper and leaderboard retrieval, and knowledge-base reads. The bounded retrieval budget in §Hard rules sits inside it. In brief:
+
+- **Fail fast on unviable sources and tools.** Classify every failure first. A permanent failure — search or fetch tool missing, MCP namespace in `needsAuth` / `error` after one auth attempt, `401` / `403` / paywall, `404`, sandbox or network block, quota exhausted — gets no identical retry: one cause-changing recovery at most (an alternate source for the same claim, an already-available tool for the same capability), then move on or escalate. Never re-fetch an unreachable page hoping it loads.
+- **Detect and break your own loops.** Stop on any loop signal — the same query (or a trivial rewording) returning the same results twice, the same page fetched a third time, the same error three times, or five tool calls in a row with no new claim, source, or gap closed. Diagnose in one line, then reframe the query or escalate.
+- **Track the task budget.** Size the task at the start from the parent's `time-budget` (or the rule's small / medium / large default); after each research question compare work done to budget spent, re-plan when over half is gone with under half done, and stop with a status at the bound.
+- When a budget is exhausted, a loop recurs, or a critical source class is unviable, emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, budget spent, 2–3 recovery options) instead of spinning.
+
 ## Quality bar (self-check before delivery)
 
 Run this checklist against the brief before declaring it complete. Fix any failing item before returning.

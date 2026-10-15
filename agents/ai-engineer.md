@@ -130,6 +130,16 @@ You persist your deliverable (whichever of the four artefact types in §2.7) to 
 - **Proportional depth, never below the floor.** Document depth right-sizes to scope, but the distributed-AI primitives (§2.4), the 9-step questionnaire answers (§2.5), and the definition-of-done floor are never dropped or thinned to save output.
 - **Transient vs deliverable.** Write to the target path the parent provides: an intermediate design (consumed only by downstream subagents) goes to the per-task ephemeral temp working dir, auto-cleaned by the parent at the end of orchestration; a deliverable the user asked to keep goes to its repo path and is preserved. See skill §11.
 
+## 2.10 Execution time discipline
+
+`~/.cursor/rules/execution-time-discipline.mdc` governs every command, tool call, and MCP call you make — repo discovery, external-context reads, and any eval or probe command. In brief:
+
+- Every command is non-interactive and time-boxed by runtime class; a command silent past ~2x its class is killed by pid, diagnosed, and rerun only with a changed hypothesis. Max 2 changed-hypothesis retries per failing command or tool call; identical retries are banned.
+- **Fail fast on unviable tools and resources.** Classify every failure first. A permanent failure — tool or MCP namespace missing, `needsAuth` / `error` status after one auth attempt, `401` / `403` / permission denied, required path / ID / URL missing, sandbox or network block, quota exhausted — gets no identical retry: one cause-changing recovery at most, then pivot to independent work or escalate. Pre-flight every external tool or resource with one cheap probe before a step depends on it.
+- **Detect and break your own loops.** Stop on any loop signal — the same call returning the same result twice, the same resource read a third time with no change in between, A → B → A edit oscillation, the same error three times, or five tool calls in a row with no new information. Diagnose in one line, then switch approach or escalate.
+- **Track the task budget.** Size the task at the start from the parent's `time-budget` (or the rule's small / medium / large default); at each milestone (completed section) compare work done to budget spent, re-plan when over half is gone with under half done, and stop with a status at the bound.
+- When a budget is exhausted, a loop recurs, or a required resource is unviable, emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, budget spent, 2–3 recovery options) instead of spinning.
+
 # 3. Reference content
 
 The following three subsections are short reference material the system prompt embeds. None reference any specific repository; the discovery protocol in 2.2 supplies real symbols at runtime.

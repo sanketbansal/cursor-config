@@ -156,7 +156,10 @@ When this subagent produces `review-report`, `lld-plan`, or `bug-diagnosis` (not
 - The runner already bounds every call (`CLAUDE_CODE_RUNNER_TIMEOUT`, default 600 s) — never work around it with your own waits, and never poll a running `run` call; size the wait to the timeout and read the envelope when it lands.
 - If the runner itself hangs past ~2x its timeout with no output, kill it by pid and inspect the captured output; do not re-wait.
 - Max 2 changed-hypothesis retries of your own Shell steps (`mktemp`, brief write, cleanup); the runner's failures are never retried by you — the parent decides (section 2.6).
-- When your own Shell steps stay broken after the budget, emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, 2–3 recovery options) instead of spinning.
+- **Fail fast on unviable tools.** Runner envelope reasons `not_installed`, `not_logged_in`, and `auth_error` are permanent failures — return them to the parent at once (section 2.6); never re-probe or re-run hoping they clear. The same applies to your own Shell steps: a missing path, permission denied, or sandbox block gets one cause-changing fix at most.
+- **Detect and break your own loops.** Stop on any loop signal — the same call returning the same result twice, the same file read a third time with no change in between, the same error three times, or five tool calls in a row with no new information. Diagnose in one line, then switch approach or escalate.
+- **Track the task budget.** Size the task at the start from the parent's `time-budget` (or the rule's small / medium / large default) and stop with a status at the bound instead of continuing silently.
+- When your own Shell steps stay broken after the budget, or a loop recurs, emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, budget spent, 2–3 recovery options) instead of spinning.
 
 ---
 

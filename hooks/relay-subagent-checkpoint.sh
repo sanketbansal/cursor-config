@@ -140,8 +140,9 @@ def _build_followup(agent_type_hint: str, agent_id_hint: str, parsed: object) ->
     options_block = _format_options(options) or "  (no options provided)"
     default_str = default if isinstance(default, (str, int)) else "(none)"
     block_description = (
-        "reported an execution blocker (`kind: blocked` — its retry budget "
-        "is exhausted; the options are recovery paths)"
+        "reported an execution blocker (`kind: blocked` — its retry, loop, "
+        "or time budget is exhausted, or a required tool / resource is "
+        "unviable; the options are recovery paths)"
         if kind == "blocked"
         else "returned a `cursor-checkpoint` block"
     )

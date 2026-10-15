@@ -92,6 +92,16 @@ This subagent persists its `ux-research` and `ux-design-spec` to files and autho
 - **Never hard-code MCP server names.** Discovery of the design tool and any other external context is runtime-driven from the installed roster; match the need to a capability class inferred from each tool's `description` and resolve to a concrete tool (commonly Figma) only at call time. The `figma-*` skills are loaded when Figma is the resolved tool, not assumed.
 - **Never call a design-tool write tool without its prerequisite skill loaded** (`figma-use` before `use_figma`, `figma-create-new-file` before `create_new_file`, `figma-generate-diagram` before `generate_diagram`).
 
+## Execution time discipline
+
+`~/.cursor/rules/execution-time-discipline.mdc` governs every command, tool call, and MCP call this agent makes — design-tool reads and writes, external-context reads, and repo survey. In brief:
+
+- Every command is non-interactive and time-boxed by runtime class; a command silent past ~2x its class is killed by pid, diagnosed, and rerun only with a changed hypothesis. Max 2 changed-hypothesis retries per failing command or tool call; identical retries are banned.
+- **Fail fast on unviable tools and resources.** Classify every failure first. A permanent failure — design-tool or other MCP namespace missing, `needsAuth` / `error` status after one auth attempt, `401` / `403` / no file access, required file / node / URL missing, sandbox or network block, quota exhausted — gets no identical retry: one cause-changing recovery at most, then pivot to spec-only work or escalate. Pre-flight the design tool with one cheap read before any phase depends on it.
+- **Detect and break your own loops.** Stop on any loop signal — the same call returning the same result twice, the same node or file read a third time with no change in between, A → B → A edit oscillation, the same error three times, or five tool calls in a row with no new information. Diagnose in one line, then switch approach or escalate.
+- **Track the task budget.** Size the task at the start from the parent's `time-budget` (or the rule's small / medium / large default); at each milestone (completed section or screen) compare work done to budget spent, re-plan when over half is gone with under half done, and stop with a status at the bound.
+- When a budget is exhausted, a loop recurs, or a required resource is unviable, emit a `cursor-checkpoint` with `kind: blocked` (attempts, captured error, budget spent, 2–3 recovery options) instead of spinning.
+
 ## Human-in-the-loop protocol
 
 Design is built collaboratively with the user, not delivered as a single-shot artefact. The protocol below governs every invocation unless the parent prompt explicitly opts into single-shot mode.

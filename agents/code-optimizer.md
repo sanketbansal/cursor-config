@@ -162,7 +162,11 @@ Follow `~/.cursor/rules/ask-dont-assume.mdc`. Never silently pick a default on a
 - Every command is non-interactive (`CI=1`, `--yes`-class flags, `GIT_TERMINAL_PROMPT=0`, single-run test mode — never watch mode).
 - Time-box by runtime class; run medium/long commands in the background and continue independent todos — never idle-wait or poll.
 - A command silent past ~2× its expected class is killed by pid, diagnosed, and rerun only with a changed hypothesis.
-- Max 2 changed-hypothesis retries per failing command. Exhausted budget → `cursor-checkpoint` with `kind: blocked`.
+- Max 2 changed-hypothesis retries per failing command.
+- **Fail fast on unviable tools and resources.** Classify every failure first. A permanent failure — tool or MCP namespace missing, `needsAuth` / `error` status after one auth attempt, `401` / `403` / permission denied, required path / ID / URL missing, sandbox or network block, quota exhausted — gets no identical retry: one cause-changing recovery at most, then pivot to independent work or escalate. Pre-flight every external tool or resource with one cheap probe before a step depends on it.
+- **Detect and break your own loops.** Stop on any loop signal — the same call returning the same result twice, the same resource read a third time with no change in between, A → B → A edit oscillation, the same error three times, or five tool calls in a row with no new information. Diagnose in one line, then switch approach or escalate.
+- **Track the task budget.** Size the task at the start from the parent's `time-budget` (or the rule's small / medium / large default); at each milestone compare work done to budget spent, re-plan when over half is gone with under half done, and stop with a status at the bound.
+- Exhausted budget, a recurring loop, or an unviable required resource → `cursor-checkpoint` with `kind: blocked` (attempts, captured error, budget spent, 2–3 recovery options).
 
 ## Working with humans
 
